@@ -63,7 +63,16 @@ public class AccountController {
     }
 
     @PostMapping("/account/{accountId}/addInterest")
+	@PostMapping("/account/{accountId}/addInterest")
     public Account addInterestToAccount(@RequestParam double amount, @PathVariable long accountId) {
+        // Retrieve the currently authenticated user
+        User currentUser = getCurrentUser();
+        
+        // Check if the current user has permission to access the account
+        if (!currentUser.hasPermissionToAccessAccount(accountId)) {
+            throw new AccessDeniedException("User does not have permission to access this account.");
+        }
+        
         Account account = this.accountRepository.findOne(accountId);
         account.addInterest();
         this.accountRepository.save(account);
@@ -72,3 +81,4 @@ public class AccountController {
     }
 
 }
+
