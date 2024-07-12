@@ -97,9 +97,10 @@ public class Account {
     this.interest = interest;
   }
 
-  @Override
-  public String toString() {
-    return "Account [id=" + id + ", type=" + type + ", routingNumber=" + routingNumber + ", accountNumber="
-        + accountNumber + ", balance=" + balance + ", interest=" + interest + "]";
+	@Override
+  public String toSafeString() {
+    return "Account [id=" + id + ", type=" + type + ", routingNumber=REDACTED, accountNumber=REDACTED, balance=" + balance + ", interest=" + interest + "]";
   }
+
 }
+
