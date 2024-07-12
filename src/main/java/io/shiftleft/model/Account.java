@@ -102,5 +102,7 @@ public class Account {
     return "Account [id=" + id + ", type=" + type + ", routingNumber=REDACTED, accountNumber=REDACTED, balance=" + balance + ", interest=" + interest + "]";
   }
 
+
 }
+
 
