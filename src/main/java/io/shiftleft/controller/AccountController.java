@@ -39,8 +39,15 @@ public class AccountController {
     }
 
     @GetMapping("/account/{accountId}")
-    public Account getAccount(@PathVariable long accountId) {
-        log.info("Account Data is {}", this.accountRepository.findOne(1l).toString());
+	@GetMapping("/account/{accountId}")
+    public Account getAccount(@PathVariable long accountId, Authentication authentication) {
+        // Check if the user has permission to access the account
+        User user = (User) authentication.getPrincipal();
+        if (!user.hasPermissionToAccessAccount(accountId)) {
+            throw new AccessDeniedException("User does not have permission to access this account.");
+        }
+        
+        log.info("Account Data is {}", this.accountRepository.findOne(accountId).toString());
         return this.accountRepository.findOne(accountId);
     }
 
@@ -72,3 +79,4 @@ public class AccountController {
     }
 
 }
+
