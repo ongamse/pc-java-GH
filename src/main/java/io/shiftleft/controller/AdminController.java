@@ -28,14 +28,36 @@ public class AdminController {
   private String fail = "redirect:/";
 
   // helper
-  private boolean isAdmin(String auth)
+	private boolean isAdmin(String auth)
   {
     try {
-      ByteArrayInputStream bis = new ByteArrayInputStream(Base64.getDecoder().decode(auth));
-      ObjectInputStream objectInputStream = new ObjectInputStream(bis);
+      // Create a custom ObjectInputStream that only allows AuthToken objects to be read
+      CustomObjectInputStream objectInputStream = new CustomObjectInputStream(new ByteArrayInputStream(Base64.getDecoder().decode(auth)));
       Object authToken = objectInputStream.readObject();
       return ((AuthToken) authToken).isAdmin();
     } catch (Exception ex) {
+      System.out.println(" cookie cannot be deserialized: "+ex.getMessage());
+      return false;
+    }
+  }
+
+  // CustomObjectInputStream class
+  class CustomObjectInputStream extends ObjectInputStream {
+    public CustomObjectInputStream(InputStream in) throws IOException {
+      super(in);
+    }
+
+    @Override
+    protected Class<?> resolveClass(ObjectStreamClass desc) throws IOException, ClassNotFoundException {
+      // Only allow AuthToken objects to be deserialized
+      if (desc.getName().equals(AuthToken.class.getName())) {
+        return AuthToken.class;
+      } else {
+        throw new InvalidClassException("Unauthorized deserialization attempt", desc.getName());
+      }
+    }
+  }
+
       System.out.println(" cookie cannot be deserialized: "+ex.getMessage());
       return false;
     }
@@ -135,3 +157,4 @@ public class AdminController {
     return "redirect:/";
   }
 }
+
