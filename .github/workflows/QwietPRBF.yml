@@ -17,7 +17,7 @@ jobs:
     - uses: actions/checkout@v3
     # We are building this application with Java 11
     - name: Setup Java JDK
-      uses: actions/setup-java@v1.4.3
+      uses: actions/setup-java@v3
       with:
         java-version: 1.8
     #- name: Package with maven
@@ -31,7 +31,7 @@ jobs:
       id: extract_branch
     - name: NextGen Static Analysis
       #run: ${GITHUB_WORKSPACE}/sl analyze --strict --wait --verbose --app Qwiet-java-GH --tag branch=${{ github.head_ref || steps.extract_branch.outputs.branch }} --vcs-prefix-correction "io/shiftleft=src/main/java/" --java --container 18fgsa/s3-resource target/hello-shiftleft-0.0.1.jar
-      run: ${GITHUB_WORKSPACE}/sl analyze --strict --wait --verbose --app Qwiet-javatoo-GH --container 18fgsa/s3-resource --tag branch=${{ github.head_ref || steps.extract_branch.outputs.branch }}
+      run: ${GITHUB_WORKSPACE}/sl analyze --strict --wait --verbose --app Qwiet-javagent-GH --container 18fgsa/s3-resource --tag branch=${{ github.head_ref || steps.extract_branch.outputs.branch }}
       #run: QWIET_ENABLE_MULTI_LANGUAGE_ANALYSIS=true ${GITHUB_WORKSPACE}/sl analyze --strict --wait --verbose --app Qwiet-Multi-GH --container 18fgsa/s3-resource --tag branch=${{ github.head_ref || steps.extract_branch.outputs.branch }}
       env:
         SHIFTLEFT_ACCESS_TOKEN: ${{ secrets.SHIFTLEFT_ACCESS_TOKEN_POC }}
@@ -71,7 +71,7 @@ jobs:
         curl https://cdn.shiftleft.io/download/sl > ${GITHUB_WORKSPACE}/sl && chmod a+rx ${GITHUB_WORKSPACE}/sl
     - name: Validate Build Rules
       run: |
-        ${GITHUB_WORKSPACE}/sl check-analysis --app Qwiet-java-GHComp \
+        ${GITHUB_WORKSPACE}/sl check-analysis --app Qwiet-javagent-GH \
             --github-pr-number=${{github.event.number}} \
             --github-pr-user=${{ github.repository_owner }} \
             --github-pr-repo=${{ github.event.repository.name }} \
