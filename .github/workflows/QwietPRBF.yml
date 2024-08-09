@@ -2,7 +2,7 @@
 ---
 # This workflow integrates ShiftLeft NG SAST with GitHub
 # Visit https://docs.shiftleft.io for help
-name: QwietQual
+name: QwietPc
 
 on:
   pull_request:
@@ -32,8 +32,8 @@ jobs:
       id: extract_branch
     - name: NextGen Static Analysis
       #run: ${GITHUB_WORKSPACE}/sl analyze --strict --wait --verbose --app Qwiet-java-GH --tag branch=${{ github.head_ref || steps.extract_branch.outputs.branch }} --vcs-prefix-correction "io/shiftleft=src/main/java/" --java --container 18fgsa/s3-resource target/hello-shiftleft-0.0.1.jar
-      run: ${GITHUB_WORKSPACE}/sl analyze --strict --wait --verbose --app Qwiet-javagent-GH --container 18fgsa/s3-resource --tag branch=${{ github.head_ref || steps.extract_branch.outputs.branch }}
-      #run: QWIET_ENABLE_MULTI_LANGUAGE_ANALYSIS=true ${GITHUB_WORKSPACE}/sl analyze --strict --wait --verbose --app Qwiet-Multi-GH --container 18fgsa/s3-resource --tag branch=${{ github.head_ref || steps.extract_branch.outputs.branch }}
+      #run: ${GITHUB_WORKSPACE}/sl analyze --strict --wait --verbose --app Qwiet-javagent-GH --container 18fgsa/s3-resource --tag branch=${{ github.head_ref || steps.extract_branch.outputs.branch }}
+      run: QWIET_ENABLE_MULTI_LANGUAGE_ANALYSIS=true ${GITHUB_WORKSPACE}/sl analyze --strict --wait --verbose --app QwietAI-Multi-GH --container 18fgsa/s3-resource --tag branch=${{ github.head_ref || steps.extract_branch.outputs.branch }}
       env:
         SHIFTLEFT_ACCESS_TOKEN: ${{ secrets.SHIFTLEFT_ACCESS_TOKEN_POC }}
         SHIFTLEFT_API_HOST: www.shiftleft.io
@@ -72,7 +72,7 @@ jobs:
         curl https://cdn.shiftleft.io/download/sl > ${GITHUB_WORKSPACE}/sl && chmod a+rx ${GITHUB_WORKSPACE}/sl
     - name: Validate Build Rules
       run: |
-        ${GITHUB_WORKSPACE}/sl check-analysis --app Qwiet-javagent-GH \
+        ${GITHUB_WORKSPACE}/sl check-analysis --app QwietAI-Multi-GH \
             --github-pr-number=${{github.event.number}} \
             --github-pr-user=${{ github.repository_owner }} \
             --github-pr-repo=${{ github.event.repository.name }} \
