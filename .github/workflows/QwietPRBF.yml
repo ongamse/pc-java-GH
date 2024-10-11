@@ -11,7 +11,7 @@ on:
     # * is a special character in YAML so you have to quote this string
     - cron: '0 11 * * 6'
 jobs:
-  NextGen-Static-Analysis:
+  QwietAI-preZero-Analysis:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
@@ -23,23 +23,48 @@ jobs:
         java-version: 11
     #- name: Package with maven
     #  run: mvn clean package
-    - name: Download ShiftLeft CLI
+    - name: Download QwietAI CLI
       run: |
         curl https://cdn.shiftleft.io/download/sl > ${GITHUB_WORKSPACE}/sl && chmod a+rx ${GITHUB_WORKSPACE}/sl
     - name: Extract branch name
       shell: bash
       run: echo "##[set-output name=branch;]$(echo ${GITHUB_REF#refs/heads/})"
       id: extract_branch
-    - name: NextGen Static Analysis
+    - name: QwietAI preZero Analysis
       #run: ${GITHUB_WORKSPACE}/sl analyze --strict --wait --verbose --app Qwiet-java-GH --tag branch=${{ github.head_ref || steps.extract_branch.outputs.branch }} --vcs-prefix-correction "io/shiftleft=src/main/java/" --java --container 18fgsa/s3-resource target/hello-shiftleft-0.0.1.jar
       run: ${GITHUB_WORKSPACE}/sl analyze --strict --wait --verbose --app QwietAI-JavaMulti-GH --container 18fgsa/s3-resource --tag branch=${{ github.head_ref || steps.extract_branch.outputs.branch }}
       #run: QWIET_ENABLE_MULTI_LANGUAGE_ANALYSIS=true QWIET_EXTERNAL_SECRETS=true ${GITHUB_WORKSPACE}/sl analyze --strict --wait --verbose --app QwietAI-Multi-GH --container 18fgsa/s3-resource --tag branch=${{ github.head_ref || steps.extract_branch.outputs.branch }}
       env:
-        SHIFTLEFT_ACCESS_TOKEN: ${{ secrets.SHIFTLEFT_ACCESS_TOKEN_POC }}
+        SHIFTLEFT_ACCESS_TOKEN: ${{ secrets.SHIFTLEFT_ACCESS_TOKEN }}
         SHIFTLEFT_API_HOST: www.shiftleft.io
         SHIFTLEFT_GRPC_TELEMETRY_HOST: telemetry.shiftleft.io:443
         SHIFTLEFT_GRPC_API_HOST: api.shiftleft.io:443
-    - name: Run Bestfix script to generate report
+    
+    - name: Download Requirements
+      run: |
+        curl -O https://raw.githubusercontent.com/ShiftLeftSecurity/field-integrations/master/shiftleft-utils/export.py
+        curl -O https://raw.githubusercontent.com/ShiftLeftSecurity/field-integrations/master/shiftleft-utils/config.py
+        curl -O https://raw.githubusercontent.com/ShiftLeftSecurity/field-integrations/master/shiftleft-utils/common.py
+        curl -O https://raw.githubusercontent.com/ShiftLeftSecurity/field-integrations/master/shiftleft-utils/requirements.txt
+
+    - name: Install Dependencies
+      run: |
+        python3 -m pip install --upgrade pip
+        python3 -m pip install -r requirements.txt
+
+    - name: Generating QwietAI Findings
+      run: |
+        APP_NAME=${{ github.event.repository.name }}
+        python3 export.py -f sarif -a QwietAI-JavaMulti-GH
+      env:
+        SHIFTLEFT_ACCESS_TOKEN: ${{ secrets.SHIFTLEFT_ACCESS_TOKEN }}
+
+    - name: Uploading Results to GitHub Security Tab
+      uses: github/codeql-action/upload-sarif@v3  # Updated to v3
+      with:
+        sarif_file: ./ngsast-report-QwietAI-JavaMulti-GH.sarif  # Correct dynamic path for SARIF output
+        
+    - name: Run QwietAI Bestfix script to generate report
       shell: bash
       if: github.event_name == 'pull_request'
       run: |
@@ -61,10 +86,10 @@ jobs:
             "${url}"
       env:
           GH_API_TOKEN: ${{ secrets.API_TOKEN }}
-          SHIFTLEFT_ACCESS_TOKEN: ${{ secrets.SHIFTLEFT_ACCESS_TOKEN_POC }}  
+          SHIFTLEFT_ACCESS_TOKEN: ${{ secrets.SHIFTLEFT_ACCESS_TOKEN }}  
   Build-Rules: 
     runs-on: ubuntu-latest
-    needs: NextGen-Static-Analysis
+    needs: QwietAI-preZero-Analysis
     steps:
     - uses: actions/checkout@v3
     - name: Download ShiftLeft CLI
