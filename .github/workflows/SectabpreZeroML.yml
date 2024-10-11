@@ -65,4 +65,4 @@ jobs:
     - name: QwietAI Uploading SAST to GitHub Security Tab
       uses: github/codeql-action/upload-sarif@v3  # Updated to v3
       with:
-        sarif_file: ./ngsast-report-QWIETAIJava.sarif  # Correct dynamic path for SARIF output
+        sarif_file: ./ngsast-report-QWIETAIMulti.sarif  # Correct dynamic path for SARIF output
