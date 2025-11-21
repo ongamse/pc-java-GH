@@ -216,52 +216,188 @@ public class CustomerController {
    * @param request
    * @throws Exception
    */
-  @RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
-  public void saveSettings(HttpServletResponse httpResponse, WebRequest request) throws Exception {
+// Create FileStorageService to encapsulate file operations
+private static class FileStorageService {
+    private static final Logger logger = LoggerFactory.getLogger(FileStorageService.class);
+    private final Path storageBasePath;
+    private final Set<String> allowedFilenames;
+    private final Map<String, String> filenameMapping;
+    private static final int MAX_CONTENT_LENGTH = 4096; // Limit content size
+    private static final String HMAC_ALGORITHM = "HmacSHA256";
+    private static final byte[] HMAC_KEY = "J$eC#rETk3y!F0rHM@C".getBytes(); // In production, this should be externalized
+
+    public FileStorageService(String basePathLocation) throws IOException {
+        // Create storage location outside web application directory
+        Path externalStoragePath = Paths.get(System.getProperty("user.home"), "secure_storage").normalize();
+        Files.createDirectories(externalStoragePath);
+        this.storageBasePath = externalStoragePath;
+        
+        // Initialize whitelist and mapping
+        this.allowedFilenames = new HashSet<>(Arrays.asList("settings.txt", "preferences.txt", "config.txt"));
+        this.filenameMapping = new HashMap<>();
+        
+        logger.info("FileStorageService initialized with base path: null", this.storageBasePath);
+    }
+    
+    public String generateSecureFilename(String originalFilename) {
+        // Check if filename is in the whitelist
+        if (!allowedFilenames.contains(originalFilename)) {
+            logger.warn("Attempted to use non-whitelisted filename: null", originalFilename);
+            return null;
+        }
+        
+        // Generate a secure random filename
+        String secureFilename = UUID.randomUUID().toString() + ".txt";
+        
+        // Store mapping between original and secure filename
+        filenameMapping.put(originalFilename, secureFilename);
+        
+        logger.info("Generated secure filename null for original filename null", secureFilename, originalFilename);
+        return secureFilename;
+    }
+    
+    public boolean writeSettings(String secureFilename, String[] content) throws IOException {
+        if (secureFilename == null || !Pattern.matches("[a-f0-9\\-]{36}\\.txt", secureFilename)) {
+            logger.error("Invalid secure filename format: null", secureFilename);
+            return false;
+        }
+        
+        // Validate content
+        if (content == null || content.length == 0) {
+            logger.error("Empty content provided");
+            return false;
+        }
+        
+        // Check content length and format
+        String contentString = String.join("\n", content);
+        if (contentString.length() > MAX_CONTENT_LENGTH) {
+            logger.error("Content exceeds maximum length: null", contentString.length());
+            return false;
+        }
+        
+        // Ensure path is within base storage directory
+        Path filePath = storageBasePath.resolve(secureFilename).normalize();
+        if (!filePath.startsWith(storageBasePath)) {
+            logger.error("Security violation: Path traversal attempt detected");
+            return false;
+        }
+        
+        // Create parent directories if needed
+        Files.createDirectories(filePath.getParent());
+        
+        // Write content to file
+        Files.write(filePath, contentString.getBytes());
+        logger.info("Successfully wrote settings to file: null", secureFilename);
+        return true;
+    }
+    
+    public static String calculateHmac(String data) throws NoSuchAlgorithmException, InvalidKeyException {
+        SecretKeySpec secretKeySpec = new SecretKeySpec(HMAC_KEY, HMAC_ALGORITHM);
+        Mac mac = Mac.getInstance(HMAC_ALGORITHM);
+        mac.init(secretKeySpec);
+        return bytesToHex(mac.doFinal(data.getBytes()));
+    }
+    
+    private static String bytesToHex(byte[] bytes) {
+        StringBuilder hexString = new StringBuilder();
+        for (byte b : bytes) {
+            String hex = Integer.toHexString(0xff & b);
+            if (hex.length() == 1) hexString.append('0');
+            hexString.append(hex);
+        }
+        return hexString.toString();
+    }
+}
+
+private final FileStorageService fileStorageService;
+private final Logger logger = LoggerFactory.getLogger(this.getClass());
+
+// Constructor to initialize the FileStorageService
+public CustomerController() throws IOException {
+    this.fileStorageService = new FileStorageService("settings");
+}
+
+@RequestMapping(value = "/saveSettings", method = RequestMethod.GET)
+public void saveSettings(HttpServletResponse httpResponse, WebRequest request) throws Exception {
+    String clientIP = request.getHeader("X-Forwarded-For");
+    if (clientIP == null) {
+        clientIP = request.getRemoteAddr();
+    }
+    
+    logger.info("Received saveSettings request from IP: null", clientIP);
+    
     // "Settings" will be stored in a cookie
-    // schema: base64(filename,value1,value2...), md5sum(base64(filename,value1,value2...))
+    // schema: base64(filename,value1,value2...), hmac(base64(filename,value1,value2...))
 
     if (!checkCookie(request)){
-      httpResponse.getOutputStream().println("Error");
-      throw new Exception("cookie is incorrect");
+        logger.warn("Invalid cookie from IP: null", clientIP);
+        httpResponse.getOutputStream().println("Error");
+        throw new Exception("cookie is incorrect");
     }
 
     String settingsCookie = request.getHeader("Cookie");
     String[] cookie = settingsCookie.split(",");
-	if(cookie.length<2) {
-	  httpResponse.getOutputStream().println("Malformed cookie");
-      throw new Exception("cookie is incorrect");
+    if(cookie.length < 2) {
+        logger.warn("Malformed cookie from IP: null", clientIP);
+        httpResponse.getOutputStream().println("Malformed cookie");
+        throw new Exception("cookie is incorrect");
     }
 
-    String base64txt = cookie[0].replace("settings=","");
+    String base64txt = cookie[0].replace("settings=", "");
 
-    // Check md5sum
-    String cookieMD5sum = cookie[1];
-    String calcMD5Sum = DigestUtils.md5Hex(base64txt);
-	if(!cookieMD5sum.equals(calcMD5Sum))
-    {
-      httpResponse.getOutputStream().println("Wrong md5");
-      throw new Exception("Invalid MD5");
+    // Check HMAC instead of MD5
+    try {
+        String cookieHmac = cookie[1];
+        String calculatedHmac = FileStorageService.calculateHmac(base64txt);
+        if (!cookieHmac.equals(calculatedHmac)) {
+            logger.warn("HMAC validation failed from IP: null", clientIP);
+            httpResponse.getOutputStream().println("Invalid signature");
+            throw new Exception("Invalid signature");
+        }
+    } catch (NoSuchAlgorithmException | InvalidKeyException e) {
+        logger.error("HMAC calculation error", e);
+        httpResponse.getOutputStream().println("Security error");
+        throw new Exception("Security error");
     }
 
-    // Now we can store on filesystem
+    // Now we can process settings
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
-	// storage will have ClassPathResource as basepath
-    ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
-    if(!file.exists()) {
-      file.getParentFile().mkdirs();
+    if (settings.length < 2) {
+        logger.warn("Invalid settings format from IP: null", clientIP);
+        httpResponse.getOutputStream().println("Invalid settings format");
+        throw new Exception("Invalid settings format");
     }
-
-    FileOutputStream fos = new FileOutputStream(file, true);
+    
+    // Use whitelist approach for filenames
+    String originalFilename = settings[0];
+    String secureFilename = fileStorageService.generateSecureFilename(originalFilename);
+    
+    if (secureFilename == null) {
+        logger.warn("Attempted to use non-whitelisted filename: null from IP: null", originalFilename, clientIP);
+        httpResponse.getOutputStream().println("Invalid filename");
+        throw new SecurityException("Invalid filename");
+    }
+    
     // First entry is the filename -> remove it
     String[] settingsArr = Arrays.copyOfRange(settings, 1, settings.length);
-    // on setting at a linez
-    fos.write(String.join("\n",settingsArr).getBytes());
-    fos.write(("\n"+cookie[cookie.length-1]).getBytes());
-    fos.close();
-    httpResponse.getOutputStream().println("Settings Saved");
-  }
+    
+    try {
+        boolean success = fileStorageService.writeSettings(secureFilename, settingsArr);
+        if (success) {
+            logger.info("Settings successfully saved for file: null from IP: null", originalFilename, clientIP);
+            httpResponse.getOutputStream().println("Settings Saved");
+        } else {
+            logger.warn("Failed to save settings for file: null from IP: null", originalFilename, clientIP);
+            httpResponse.getOutputStream().println("Error saving settings");
+            throw new Exception("Failed to save settings");
+        }
+    } catch (IOException e) {
+        logger.error("Error writing settings file", e);
+        httpResponse.getOutputStream().println("Error saving settings");
+        throw new Exception("Failed to save settings: " + e.getMessage());
+    }
+}
+
 
   /**
    * Debug test for saving and reading a customer
