@@ -14,10 +14,10 @@ steps:
     mavenPomFile: 'pom.xml'
     mavenOptions: '-Xmx3072m'
     javaHomeOption: 'JDKVersion'
-    jdkVersionOption: '1.8'
+    jdkVersionOption: '1.17'
     jdkArchitectureOption: 'x64'
-    publishJUnitResults: false
-    goals: 'package'
+    publishJUnitResults: true
+    goals: 'clean verify'
 - task: PowerShell@2
   displayName: Download ShiftLeft cli
   inputs:

@@ -1,103 +1,53 @@
 package io.shiftleft.controller;
 
-import org.springframework.boot.autoconfigure.web.ErrorAttributes;
-import org.springframework.boot.autoconfigure.web.ErrorController;
+import jakarta.servlet.RequestDispatcher;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.boot.web.error.ErrorAttributeOptions;
+import org.springframework.boot.webmvc.error.ErrorAttributes;
+import org.springframework.boot.webmvc.error.ErrorController;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseBody;
-import org.springframework.web.context.request.RequestAttributes;
-import org.springframework.web.context.request.ServletRequestAttributes;
-import org.springframework.web.servlet.ModelAndView;
+import org.springframework.web.context.request.ServletWebRequest;
+import org.springframework.web.util.HtmlUtils;
 
-import javax.servlet.http.HttpServletRequest;
 import java.util.Map;
 
-/**
- * Error controller, based on https://stackoverflow.com/questions/31134333/this-application-has-no-explicit-mapping-for-error/31838439#31838439
- */
 @Controller
-public class AppErrorController implements ErrorController{
+public class AppErrorController implements ErrorController {
+  private final ErrorAttributes errorAttributes;
 
-  /**
-   * Error Attributes in the Application
-   */
-  private ErrorAttributes errorAttributes;
-
-  private final static String ERROR_PATH = "/error";
-
-  /**
-   * Controller for the Error Controller
-   * @param errorAttributes
-   */
   public AppErrorController(ErrorAttributes errorAttributes) {
     this.errorAttributes = errorAttributes;
   }
 
-  /**
-   * Supports the HTML Error View
-   * @param request
-   * @return
-   */
-  @RequestMapping(value = ERROR_PATH, produces = "text/html")
-  public ModelAndView errorHtml(HttpServletRequest request) {
-    return new ModelAndView("/errors/error", getErrorAttributes(request, false));
+  @RequestMapping(value = "/error", produces = MediaType.TEXT_HTML_VALUE)
+  @ResponseBody
+  public ResponseEntity<String> errorHtml(HttpServletRequest request) {
+    HttpStatus status = getStatus(request);
+    String message = HtmlUtils.htmlEscape(status.getReasonPhrase());
+    String body = "<!doctype html><html><head><title>" + status.value() + " " + message
+        + "</title></head><body><h1>" + status.value() + " " + message + "</h1></body></html>";
+    return ResponseEntity.status(status).contentType(MediaType.TEXT_HTML).body(body);
   }
 
-  /**
-   * Supports other formats like JSON, XML
-   * @param request
-   * @return
-   */
-  @RequestMapping(value = ERROR_PATH)
+  @RequestMapping("/error")
   @ResponseBody
   public ResponseEntity<Map<String, Object>> error(HttpServletRequest request) {
-    Map<String, Object> body = getErrorAttributes(request, getTraceParameter(request));
-    HttpStatus status = getStatus(request);
-    return new ResponseEntity<Map<String, Object>>(body, status);
-  }
-
-  /**
-   * Returns the path of the error page.
-   *
-   * @return the error path
-   */
-  @Override
-  public String getErrorPath() {
-    return ERROR_PATH;
-  }
-
-
-  private boolean getTraceParameter(HttpServletRequest request) {
-    String parameter = request.getParameter("trace");
-    if (parameter == null) {
-      return false;
-    }
-    return !"false".equals(parameter.toLowerCase());
-  }
-
-  private Map<String, Object> getErrorAttributes(HttpServletRequest request,
-                                                 boolean includeStackTrace) {
-    RequestAttributes requestAttributes = new ServletRequestAttributes(request);
-
-    Map<String,Object> m = this.errorAttributes.getErrorAttributes(requestAttributes, includeStackTrace);
-    System.out.println("Error: ");
-    System.out.println("============");
-    for(String key: m.keySet())
-      System.out.println(key+": "+m.get(key));
-    System.out.println("============");
-    return m;
+    Map<String, Object> body = errorAttributes.getErrorAttributes(
+        new ServletWebRequest(request), ErrorAttributeOptions.defaults());
+    return ResponseEntity.status(getStatus(request)).body(body);
   }
 
   private HttpStatus getStatus(HttpServletRequest request) {
-    Integer statusCode = (Integer) request
-        .getAttribute("javax.servlet.error.status_code");
-    if (statusCode != null) {
-      try {
-        return HttpStatus.valueOf(statusCode);
-      }
-      catch (Exception ex) {
+    Object statusCode = request.getAttribute(RequestDispatcher.ERROR_STATUS_CODE);
+    if (statusCode instanceof Integer code) {
+      HttpStatus status = HttpStatus.resolve(code);
+      if (status != null) {
+        return status;
       }
     }
     return HttpStatus.INTERNAL_SERVER_ERROR;

@@ -21,20 +21,17 @@ import java.util.HashSet;
 import java.util.List;
 
 import java.util.Set;
-import javax.annotation.PostConstruct;
-import javax.servlet.http.HttpServletResponse;
+import jakarta.annotation.PostConstruct;
+import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.codec.digest.DigestUtils;
-import org.apache.http.HttpHeaders;
-import org.apache.http.auth.AuthenticationException;
-import org.apache.http.auth.UsernamePasswordCredentials;
-import org.apache.http.client.ClientProtocolException;
-import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.entity.StringEntity;
-import org.apache.http.impl.auth.BasicScheme;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClients;
-import org.joda.time.DateTime;
+import org.apache.hc.core5.http.HttpHeaders;
+import org.apache.hc.core5.http.ContentType;
+import org.apache.hc.client5.http.classic.methods.HttpPost;
+import org.apache.hc.core5.http.io.entity.StringEntity;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,7 +49,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.request.WebRequest;
 
-import com.ulisesbocchio.jasyptspringboot.annotation.EnableEncryptableProperties;
 
 import io.shiftleft.data.DataLoader;
 import io.shiftleft.exception.CustomerNotFoundException;
@@ -67,7 +63,6 @@ import org.springframework.web.util.HtmlUtils;
  */
 
 @Configuration
-@EnableEncryptableProperties
 @PropertySource({ "classpath:config/application-sfdc.properties" })
 @RestController
 public class CustomerController {
@@ -77,7 +72,7 @@ public class CustomerController {
 
 	@Autowired
 	Environment env;
-	
+
 	private static Logger log = LoggerFactory.getLogger(CustomerController.class);
 
 	@PostConstruct
@@ -85,22 +80,23 @@ public class CustomerController {
 		log.info("Start Loading SalesForce Properties");
 		log.info("Url is {}", env.getProperty("sfdc.url"));
 		log.info("UserName is {}", env.getProperty("sfdc.username"));
-		log.info("Password is {}", env.getProperty("sfdc.password"));
+		log.info("Salesforce password configured: {}", env.getProperty("sfdc.password", "").length() > 0);
 		log.info("End Loading SalesForce Properties");
 	}
 
 	private void dispatchEventToSalesForce(String event)
-			throws ClientProtocolException, IOException, AuthenticationException {
-		CloseableHttpClient client = HttpClients.createDefault();
+			throws IOException {
+		try (CloseableHttpClient client = HttpClients.createDefault()) {
 		HttpPost httpPost = new HttpPost(env.getProperty("sfdc.url"));
-		httpPost.setEntity(new StringEntity(event));
-		UsernamePasswordCredentials creds = new UsernamePasswordCredentials(env.getProperty("sfdc.username"),
-				env.getProperty("sfdc.password"));
-		httpPost.addHeader(new BasicScheme().authenticate(creds, httpPost, null));
-
-		CloseableHttpResponse response = client.execute(httpPost);
-		log.info("Response from SFDC is {}", response.getStatusLine().getStatusCode());
-		client.close();
+		httpPost.setEntity(new StringEntity(event, ContentType.TEXT_PLAIN));
+		String credentials = env.getProperty("sfdc.username") + ":" + env.getProperty("sfdc.password");
+		httpPost.setHeader(HttpHeaders.AUTHORIZATION, "Basic " + Base64.getEncoder()
+				.encodeToString(credentials.getBytes(StandardCharsets.ISO_8859_1)));
+		client.execute(httpPost, response -> {
+			log.info("Response from SFDC is {}", response.getCode());
+			return null;
+		});
+		}
 	}
 
 	/**
@@ -117,7 +113,7 @@ public class CustomerController {
         throw new InvalidCustomerRequestException();
       }
 
-      Customer customer = customerRepository.findOne(customerId);
+      Customer customer = customerRepository.findById(customerId).orElse(null);
 		if (null == customer) {
 		  throw new CustomerNotFoundException();
 	  }
@@ -293,7 +289,7 @@ public class CustomerController {
     // empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
     //dateofbirth example -> "1982-01-10"
-    Customer customer1 = new Customer(customerId, clientId, firstName, lastName, DateTime.parse(dateOfBirth).toDate(),
+    Customer customer1 = new Customer(customerId, clientId, firstName, lastName, java.util.Date.from(LocalDate.parse(dateOfBirth).atStartOfDay(ZoneId.systemDefault()).toInstant()),
                                       ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
                                       "", "Debug city", "CA", "12345"),
                                       accounts1);
@@ -340,7 +336,7 @@ public class CustomerController {
 	 * @return created customer
 	 */
 	@RequestMapping(value = { "/customers" }, method = { RequestMethod.POST })
-	public Customer createCustomer(@RequestParam Customer customer, HttpServletResponse httpResponse,
+	public Customer createCustomer(@RequestBody Customer customer, HttpServletResponse httpResponse,
 								   WebRequest request) {
 
 		Customer createdcustomer = null;
@@ -362,9 +358,10 @@ public class CustomerController {
 	public void updateCustomer(@RequestBody Customer customer, @PathVariable("customerId") Long customerId,
 			HttpServletResponse httpResponse) {
 
-		if (!customerRepository.exists(customerId)) {
+		if (!customerRepository.existsById(customerId)) {
 			httpResponse.setStatus(HttpStatus.NOT_FOUND.value());
 		} else {
+			customer.setId(customerId);
 			customerRepository.save(customer);
 			httpResponse.setStatus(HttpStatus.NO_CONTENT.value());
 		}
@@ -380,8 +377,8 @@ public class CustomerController {
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.DELETE)
 	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse) {
 
-		if (customerRepository.exists(customerId)) {
-			customerRepository.delete(customerId);
+		if (customerRepository.existsById(customerId)) {
+			customerRepository.deleteById(customerId);
 		}
 
 		httpResponse.setStatus(HttpStatus.NO_CONTENT.value());
