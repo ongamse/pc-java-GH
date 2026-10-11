@@ -3,11 +3,51 @@
 This is a demo application which provides a real world representation of a REST service that uses a mix of convention and configuration to simulate a decent set of vulnerabilities exposed in the code. It includes scenarios such as sensitive data leaking to logs, data secrets leaks, authentication bypass, remote code execution, XSS vulnerabilites etc. The sample sensitive data is a mix of financial data such as account information, medical data of patients, and other PII data such as customer information. HelloShiftLeft also contains patterns/anti-patterns of how data is used/abused in interfaces or channels (to and from HTTP/TCP, third-party, database) that can lead to vulnerabilites. The application is built on the Spring Framework and exposes a series of endpoints and APIs for queries and simulating exploits.
 
 ## Build
+Requires JDK 17 or newer. The Maven wrapper downloads and verifies Maven 3.9.16.
+
  ```sh
  $ git clone https://github.com/ShiftLeftSecurity/HelloShiftLeft.git
  $ cd HelloShiftLeft
- $ mvn clean package
+ $ ./mvnw -B -ntp clean verify
  ```
+
+On Windows, run `mvnw.cmd -B -ntp clean verify`.
+
+## Dependency migration
+
+This application now uses Spring Boot 4.1.1 and Jakarta APIs. Java 8 deployments
+must move to Java 17 before deploying this change. Jackson is managed as a complete
+BOM (3.1.7), with Tomcat 11.0.26 security patches. Jackson 1.x, Jackson 2 databind,
+HttpClient 4, Jasypt, and the old Jasypt Spring Boot starter are removed. HttpClient 5 and
+its supporting libraries follow Spring Boot dependency management. Joda-Time
+date parsing is replaced with Java time while preserving the system time zone.
+
+Credentials are read from `DB_PASSWORD`, `SFDC_PASSWORD`, `AWS_ACCESS_KEY_ID`,
+and `AWS_SECRET_ACCESS_KEY`. No credential value is logged. Rotate any values that
+were previously committed before using this branch. This remains an intentionally
+vulnerable demo, not a production-hardening release.
+
+The compatibility suite covers embedded HSQLDB startup and generated IDs, customer
+CRUD, accounts, nested JSON and date values, property overrides,
+local HTTP event dispatch, HTML/JSON errors, and Actuator health. Production
+database schemas and real Salesforce credentials are not exercised. Test any
+external database on a restored copy before deployment; Hibernate's generators
+and schema conventions differ from Boot 1.x.
+
+Actuator endpoints are under `/actuator`; only health and info are exposed.
+Jackson 3 uses the Jackson 2 compatibility defaults. JSON customer creation now
+accepts a request body, and updates use the resource ID in the URL.
+
+To inspect the resolved dependency set and check public vulnerability advisories:
+
+```sh
+./mvnw -B -ntp dependency:tree -DoutputType=json -DoutputFile=target/dependency-tree.json
+pwsh -File scripts/Test-Dependencies.ps1 -TreePath target/dependency-tree.json
+```
+
+CI runs these checks and uploads the results. An OSV match or an unavailable scan
+fails the check. No matches means no matches in that database at that time, not a
+guarantee that the application's deliberately vulnerable code is secure.
  
 ## Run
  ```sh

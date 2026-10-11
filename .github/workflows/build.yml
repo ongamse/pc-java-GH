@@ -1,0 +1,36 @@
+name: Build and compatibility tests
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Build and verify dependencies and API compatibility
+        run: ./mvnw -B -ntp clean verify
+      - name: Record resolved dependencies
+        run: ./mvnw -B -ntp dependency:tree -DoutputType=json -DoutputFile=target/dependency-tree.json
+      - name: Check resolved dependencies against OSV
+        shell: pwsh
+        run: ./scripts/Test-Dependencies.ps1 -TreePath target/dependency-tree.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: compatibility-results
+          path: |
+            target/surefire-reports/
+            target/dependency-tree.json
+            target/dependency-security.json

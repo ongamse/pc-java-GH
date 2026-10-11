@@ -2,8 +2,8 @@ package io.shiftleft.controller;
 
 import io.shiftleft.data.DataLoader;
 import io.shiftleft.model.Account;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 import io.shiftleft.repository.AccountRepository;
 
@@ -11,6 +11,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 
 /**
@@ -23,11 +25,10 @@ public class AccountController {
     private AccountRepository accountRepository;
 
     private static Logger log = LoggerFactory.getLogger(DataLoader.class);
-    
+
     @GetMapping("/account")
     public Iterable<Account> getAccountList(HttpServletResponse response, HttpServletRequest request) {
         response.addHeader("test-header-detection", new Account().toString());
-        log.info("Account Data is {}", this.accountRepository.findOne(1l).toString());
         return this.accountRepository.findAll();
     }
 
@@ -40,13 +41,12 @@ public class AccountController {
 
     @GetMapping("/account/{accountId}")
     public Account getAccount(@PathVariable long accountId) {
-        log.info("Account Data is {}", this.accountRepository.findOne(1l).toString());
-        return this.accountRepository.findOne(accountId);
+        return requireAccount(accountId);
     }
 
     @PostMapping("/account/{accountId}/deposit")
     public Account depositIntoAccount(@RequestParam double amount, @PathVariable long accountId) {
-        Account account = this.accountRepository.findOne(accountId);
+        Account account = requireAccount(accountId);
         log.info("Account Data is {}", account.toString());
         account.deposit(amount);
         this.accountRepository.save(account);
@@ -55,7 +55,7 @@ public class AccountController {
 
     @PostMapping("/account/{accountId}/withdraw")
     public Account withdrawFromAccount(@RequestParam double amount, @PathVariable long accountId) {
-        Account account = this.accountRepository.findOne(accountId);
+        Account account = requireAccount(accountId);
         account.withdraw(amount);
         this.accountRepository.save(account);
         log.info("Account Data is {}", account.toString());
@@ -64,11 +64,15 @@ public class AccountController {
 
     @PostMapping("/account/{accountId}/addInterest")
     public Account addInterestToAccount(@RequestParam double amount, @PathVariable long accountId) {
-        Account account = this.accountRepository.findOne(accountId);
+        Account account = requireAccount(accountId);
         account.addInterest();
         this.accountRepository.save(account);
         log.info("Account Data is {}", account.toString());
         return account;
     }
 
+    private Account requireAccount(long accountId) {
+        return accountRepository.findById(accountId).orElseThrow(
+            () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Account not found"));
+    }
 }
