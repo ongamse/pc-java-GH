@@ -73,11 +73,12 @@
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
+            <artifactId>jackson-core</artifactId>
+            <version>2.13.0</version>
         </dependency>
-    </dependencies>
-    <properties>
-        <java.version>1.8</java.version>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
         <jackson.mapper.version>1.5.6</jackson.mapper.version>
     </properties>
     <build>
