@@ -15,6 +15,12 @@ public class ControllerExceptionHandler {
 
   private static Logger log = LoggerFactory.getLogger(CustomerController.class);
   
+	@ResponseStatus(HttpStatus.FORBIDDEN) // 403
+	@ExceptionHandler(AccessDeniedException.class)
+	public void handleAccessDenied(AccessDeniedException ex) {
+		log.error("Access denied");
+	}
+
 	@ResponseStatus(HttpStatus.NOT_FOUND) // 404
 	@ExceptionHandler(CustomerNotFoundException.class)
 	public void handleNotFound(CustomerNotFoundException ex) {

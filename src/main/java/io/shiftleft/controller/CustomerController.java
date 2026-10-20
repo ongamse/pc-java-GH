@@ -2,6 +2,7 @@ package io.shiftleft.controller;
 
 import io.shiftleft.model.Account;
 import io.shiftleft.model.Address;
+import io.shiftleft.service.AuthorizationService;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -14,6 +15,7 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.Principal;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Date;
@@ -76,9 +78,40 @@ public class CustomerController {
 	private CustomerRepository customerRepository;
 
 	@Autowired
+	private AuthorizationService authorizationService;
+
+	@Autowired
 	Environment env;
 	
 	private static Logger log = LoggerFactory.getLogger(CustomerController.class);
+
+	/**
+	 * Sanitizes a value before use in an HTTP response header by removing
+	 * CR and LF characters to prevent HTTP response splitting (CWE-113).
+	 */
+	private static String sanitizeHeaderValue(String value) {
+		if (value == null) {
+			return null;
+		}
+		return value.replaceAll("[\\r\\n]", "");
+	}
+
+	/**
+	 * Validates that a URL is a safe relative path to prevent open redirects (CWE-601).
+	 * Rejects absolute URLs, protocol-relative URLs, and URLs containing scheme indicators.
+	 */
+	private static String validateRelativeUrl(String url) {
+		if (url == null || url.isEmpty()) {
+			return "/";
+		}
+		if (url.startsWith("//") || url.contains("://")) {
+			return "/";
+		}
+		if (!url.startsWith("/")) {
+			url = "/" + url;
+		}
+		return url;
+	}
 
 	@PostConstruct
 	public void init() {
@@ -110,13 +143,14 @@ public class CustomerController {
 	 * @return retrieved customer
 	 */
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.GET)
-	public Customer getCustomer(@PathVariable("customerId") Long customerId) {
+	public Customer getCustomer(@PathVariable("customerId") Long customerId, Principal principal) {
 
 		/* validate customer Id parameter */
       if (null == customerId) {
         throw new InvalidCustomerRequestException();
       }
 
+      authorizationService.validateCustomerAccess(principal, customerId);
       Customer customer = customerRepository.findOne(customerId);
 		if (null == customer) {
 		  throw new CustomerNotFoundException();
@@ -202,7 +236,7 @@ public class CustomerController {
             // encode the file settings, md5sum is removed
             String s = new String(Base64.getEncoder().encode(filecontent.replace(md5sum, "").getBytes()));
             // setting the new cookie
-            httpResponse.setHeader("Cookie", "settings=" + s + "," + md5sum);
+            httpResponse.setHeader("Cookie", sanitizeHeaderValue("settings=" + s + "," + md5sum));
             return;
           }
         }
@@ -238,7 +272,7 @@ public class CustomerController {
     // Check md5sum
     String cookieMD5sum = cookie[1];
     String calcMD5Sum = DigestUtils.md5Hex(base64txt);
-	if(!cookieMD5sum.equals(calcMD5Sum))
+	if(!MessageDigest.isEqual(cookieMD5sum.getBytes(StandardCharsets.UTF_8), calcMD5Sum.getBytes(StandardCharsets.UTF_8)))
     {
       httpResponse.getOutputStream().println("Wrong md5");
       throw new Exception("Invalid MD5");
@@ -248,7 +282,12 @@ public class CustomerController {
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
+    File baseDir = new File(cpr.getPath()).getCanonicalFile();
+    File file = new File(baseDir, settings[0]).getCanonicalFile();
+    if (!file.toPath().startsWith(baseDir.toPath())) {
+      httpResponse.getOutputStream().println("Invalid file path");
+      throw new Exception("Path traversal detected");
+    }
     if(!file.exists()) {
       file.getParentFile().mkdirs();
     }
@@ -288,7 +327,10 @@ public class CustomerController {
                       @RequestParam String tin,
                       @RequestParam String phoneNumber,
                       HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
+                     WebRequest request,
+                     Principal principal) throws IOException{
+
+    authorizationService.validatePrincipal(principal);
 
     // empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
@@ -300,10 +342,11 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+    httpResponse.setHeader("Location", sanitizeHeaderValue(
+                           validateRelativeUrl(String.format("%s/customers/%s",
+                           request.getContextPath(), customer1.getId()))));
 
-    return customer1.toString().toLowerCase().replace("script","");
+    return HtmlUtils.htmlEscape(customer1.toString().toLowerCase());
   }
 
 	/**
@@ -347,7 +390,8 @@ public class CustomerController {
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
 		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+				sanitizeHeaderValue(validateRelativeUrl(
+						String.format("%s/customers/%s", request.getContextPath(), customer.getId()))));
 
 		return createdcustomer;
 	}
@@ -360,8 +404,9 @@ public class CustomerController {
 	 */
 	@RequestMapping(value = { "/customers/{customerId}" }, method = { RequestMethod.PUT })
 	public void updateCustomer(@RequestBody Customer customer, @PathVariable("customerId") Long customerId,
-			HttpServletResponse httpResponse) {
+			HttpServletResponse httpResponse, Principal principal) {
 
+		authorizationService.validateCustomerAccess(principal, customerId);
 		if (!customerRepository.exists(customerId)) {
 			httpResponse.setStatus(HttpStatus.NOT_FOUND.value());
 		} else {
@@ -378,8 +423,10 @@ public class CustomerController {
 	 *            the customer id
 	 */
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.DELETE)
-	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse) {
+	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse,
+			Principal principal) {
 
+		authorizationService.validateCustomerAccess(principal, customerId);
 		if (customerRepository.exists(customerId)) {
 			customerRepository.delete(customerId);
 		}
