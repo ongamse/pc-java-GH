@@ -12,6 +12,11 @@ public class AuthToken implements Serializable {
 
   private int role;
 
+  // No-arg constructor required for Jackson JSON deserialization
+  public AuthToken() {
+    this.role = USER;
+  }
+
   public AuthToken(int role) {
     this.role = role;
   }
