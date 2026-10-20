@@ -38,8 +38,9 @@ jobs:
 
     - name: QwietAI preZero Analysis
       #run: ${GITHUB_WORKSPACE}/sl analyze --strict --wait --verbose --app QWIETAI-Java --container 18fgsa/s3-resource --tag branch=${{ github.head_ref || steps.extract_branch.outputs.branch }}
-      run: ${GITHUB_WORKSPACE}/sl analyze --strict --wait --verbose --app QWIETAI-Java --container alexsotoharness/spring-boot-hello-world --tag branch=${{ github.head_ref || steps.extract_branch.outputs.branch }}
+      run: ${GITHUB_WORKSPACE}/sl analyze --strict --wait --verbose --app QWIETAI-Java --container alexsotoharness/spring-boot-hello-world --tag branch="$BRANCH_NAME"
       env:
+        BRANCH_NAME: ${{ github.head_ref || steps.extract_branch.outputs.branch }}
         SHIFTLEFT_ACCESS_TOKEN: ${{ secrets.SHIFTLEFT_ACCESS_TOKEN }}
         SHIFTLEFT_API_HOST: www.shiftleft.io
         SHIFTLEFT_GRPC_TELEMETRY_HOST: telemetry.shiftleft.io:443
