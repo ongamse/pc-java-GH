@@ -4,9 +4,15 @@ import io.shiftleft.model.AuthToken;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InvalidClassException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.io.ObjectStreamClass;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.Base64;
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
@@ -27,12 +33,35 @@ import org.springframework.web.bind.annotation.RequestMethod;
 public class AdminController {
   private String fail = "redirect:/";
 
+  /**
+   * An ObjectInputStream that only allows deserialization of an explicit
+   * set of safe classes, preventing Java deserialization gadget attacks.
+   */
+  private static class SafeObjectInputStream extends ObjectInputStream {
+
+    private static final Set<String> ALLOWED_CLASSES = new HashSet<>(Arrays.asList(
+        AuthToken.class.getName()
+    ));
+
+    SafeObjectInputStream(InputStream in) throws IOException {
+      super(in);
+    }
+
+    @Override
+    protected Class<?> resolveClass(ObjectStreamClass desc) throws IOException, ClassNotFoundException {
+      if (!ALLOWED_CLASSES.contains(desc.getName())) {
+        throw new InvalidClassException("Deserialization of class not allowed: " + desc.getName());
+      }
+      return super.resolveClass(desc);
+    }
+  }
+
   // helper
   private boolean isAdmin(String auth)
   {
     try {
       ByteArrayInputStream bis = new ByteArrayInputStream(Base64.getDecoder().decode(auth));
-      ObjectInputStream objectInputStream = new ObjectInputStream(bis);
+      ObjectInputStream objectInputStream = new SafeObjectInputStream(bis);
       Object authToken = objectInputStream.readObject();
       return ((AuthToken) authToken).isAdmin();
     } catch (Exception ex) {
