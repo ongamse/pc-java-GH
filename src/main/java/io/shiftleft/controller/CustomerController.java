@@ -96,6 +96,23 @@ public class CustomerController {
 		return value.replaceAll("[\\r\\n]", "");
 	}
 
+	/**
+	 * Validates that a URL is a safe relative path to prevent open redirects (CWE-601).
+	 * Rejects absolute URLs, protocol-relative URLs, and URLs containing scheme indicators.
+	 */
+	private static String validateRelativeUrl(String url) {
+		if (url == null || url.isEmpty()) {
+			return "/";
+		}
+		if (url.startsWith("//") || url.contains("://")) {
+			return "/";
+		}
+		if (!url.startsWith("/")) {
+			url = "/" + url;
+		}
+		return url;
+	}
+
 	@PostConstruct
 	public void init() {
 		log.info("Start Loading SalesForce Properties");
@@ -325,8 +342,9 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", sanitizeHeaderValue(String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId())));
+    httpResponse.setHeader("Location", sanitizeHeaderValue(
+                           validateRelativeUrl(String.format("%s/customers/%s",
+                           request.getContextPath(), customer1.getId()))));
 
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase());
   }
@@ -372,7 +390,8 @@ public class CustomerController {
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
 		httpResponse.setHeader("Location",
-				sanitizeHeaderValue(String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
+				sanitizeHeaderValue(validateRelativeUrl(
+						String.format("%s/customers/%s", request.getContextPath(), customer.getId()))));
 
 		return createdcustomer;
 	}
