@@ -14,6 +14,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.Base64;
+import java.util.regex.Pattern;
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -54,6 +55,34 @@ public class AdminController {
       }
       return super.resolveClass(desc);
     }
+  }
+
+  // Maximum allowed length for Base64-encoded auth tokens stored in the session
+  private static final int MAX_AUTH_TOKEN_LENGTH = 4096;
+
+  // Only Base64 characters (A-Z, a-z, 0-9, +, /, =) are valid for serialized auth tokens
+  private static final Pattern BASE64_PATTERN = Pattern.compile("^[A-Za-z0-9+/=]+$");
+
+  /**
+   * Validates a value before storing it in the HTTP session, enforcing a trust boundary.
+   * Ensures the value is non-null, within acceptable length, and contains only
+   * valid Base64 characters (since auth tokens are Base64-encoded serialized objects).
+   *
+   * @param value the candidate value to store in session
+   * @return the validated value
+   * @throws IllegalArgumentException if the value fails validation
+   */
+  private static String validateSessionAuthValue(String value) {
+    if (value == null || value.isEmpty()) {
+      throw new IllegalArgumentException("Auth value must not be null or empty");
+    }
+    if (value.length() > MAX_AUTH_TOKEN_LENGTH) {
+      throw new IllegalArgumentException("Auth value exceeds maximum allowed length");
+    }
+    if (!BASE64_PATTERN.matcher(value).matches()) {
+      throw new IllegalArgumentException("Auth value contains invalid characters");
+    }
+    return value;
   }
 
   // helper
@@ -118,7 +147,8 @@ public class AdminController {
       // no cookie no fun
       if (!auth.equals("notset")) {
         if(isAdmin(auth)) {
-          request.getSession().setAttribute("auth",auth);
+          String validatedAuth = validateSessionAuthValue(auth);
+          request.getSession().setAttribute("auth", validatedAuth);
           return succ;
         }
       }
@@ -141,7 +171,8 @@ public class AdminController {
         response.addCookie(authCookie);
 
         // cookie is lost after redirection
-        request.getSession().setAttribute("auth",cookieValue);
+        String validatedCookieValue = validateSessionAuthValue(cookieValue);
+        request.getSession().setAttribute("auth", validatedCookieValue);
 
         return succ;
       }
