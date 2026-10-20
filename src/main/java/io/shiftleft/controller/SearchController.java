@@ -19,12 +19,19 @@ import org.springframework.web.bind.annotation.RequestParam;
 @Controller
 public class SearchController {
 
+  private static final java.util.regex.Pattern SAFE_SPEL_PATTERN =
+      java.util.regex.Pattern.compile("^[a-zA-Z0-9_.,' \\-+*/()]+$");
+
   @RequestMapping(value = "/search/user", method = RequestMethod.GET)
   public String doGetSearch(@RequestParam String foo, HttpServletResponse response, HttpServletRequest request) {
+    if (foo == null || foo.isEmpty() || foo.length() > 200 || !SAFE_SPEL_PATTERN.matcher(foo).matches()) {
+      return "Invalid search expression";
+    }
     java.lang.Object message = new Object();
     try {
+      String validatedInput = foo;
       ExpressionParser parser = new SpelExpressionParser();
-      Expression exp = parser.parseExpression(foo);
+      Expression exp = parser.parseExpression(validatedInput);
       EvaluationContext context = SimpleEvaluationContext.forReadOnlyDataBinding().build();
       message = (Object) exp.getValue(context);
     } catch (Exception ex) {
