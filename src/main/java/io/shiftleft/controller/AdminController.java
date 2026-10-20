@@ -107,7 +107,9 @@ public class AdminController {
         ObjectOutputStream oos = new ObjectOutputStream(bos);
         oos.writeObject(authToken);
         String cookieValue = new String(Base64.getEncoder().encode(bos.toByteArray()));
-        response.addCookie(new Cookie("auth", cookieValue ));
+        Cookie authCookie = new Cookie("auth", cookieValue);
+        authCookie.setSecure(true);
+        response.addCookie(authCookie);
 
         // cookie is lost after redirection
         request.getSession().setAttribute("auth",cookieValue);
