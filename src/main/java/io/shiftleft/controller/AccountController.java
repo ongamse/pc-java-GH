@@ -2,6 +2,8 @@ package io.shiftleft.controller;
 
 import io.shiftleft.data.DataLoader;
 import io.shiftleft.model.Account;
+import io.shiftleft.service.AuthorizationService;
+import java.security.Principal;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -22,6 +24,9 @@ public class AccountController {
     @Autowired
     private AccountRepository accountRepository;
 
+    @Autowired
+    private AuthorizationService authorizationService;
+
     private static Logger log = LoggerFactory.getLogger(DataLoader.class);
     
     @GetMapping("/account")
@@ -39,13 +44,15 @@ public class AccountController {
     }
 
     @GetMapping("/account/{accountId}")
-    public Account getAccount(@PathVariable long accountId) {
+    public Account getAccount(@PathVariable long accountId, Principal principal) {
+        authorizationService.validateAccountAccess(principal, accountId);
         log.info("Account Data is {}", this.accountRepository.findOne(1l).toString());
         return this.accountRepository.findOne(accountId);
     }
 
     @PostMapping("/account/{accountId}/deposit")
-    public Account depositIntoAccount(@RequestParam double amount, @PathVariable long accountId) {
+    public Account depositIntoAccount(@RequestParam double amount, @PathVariable long accountId, Principal principal) {
+        authorizationService.validateAccountAccess(principal, accountId);
         Account account = this.accountRepository.findOne(accountId);
         log.info("Account Data is {}", account.toString());
         account.deposit(amount);
@@ -54,7 +61,8 @@ public class AccountController {
     }
 
     @PostMapping("/account/{accountId}/withdraw")
-    public Account withdrawFromAccount(@RequestParam double amount, @PathVariable long accountId) {
+    public Account withdrawFromAccount(@RequestParam double amount, @PathVariable long accountId, Principal principal) {
+        authorizationService.validateAccountAccess(principal, accountId);
         Account account = this.accountRepository.findOne(accountId);
         account.withdraw(amount);
         this.accountRepository.save(account);
@@ -63,7 +71,8 @@ public class AccountController {
     }
 
     @PostMapping("/account/{accountId}/addInterest")
-    public Account addInterestToAccount(@RequestParam double amount, @PathVariable long accountId) {
+    public Account addInterestToAccount(@RequestParam double amount, @PathVariable long accountId, Principal principal) {
+        authorizationService.validateAccountAccess(principal, accountId);
         Account account = this.accountRepository.findOne(accountId);
         account.addInterest();
         this.accountRepository.save(account);

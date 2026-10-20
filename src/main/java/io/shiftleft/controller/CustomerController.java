@@ -2,6 +2,7 @@ package io.shiftleft.controller;
 
 import io.shiftleft.model.Account;
 import io.shiftleft.model.Address;
+import io.shiftleft.service.AuthorizationService;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -14,6 +15,7 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.Principal;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Date;
@@ -76,6 +78,9 @@ public class CustomerController {
 	private CustomerRepository customerRepository;
 
 	@Autowired
+	private AuthorizationService authorizationService;
+
+	@Autowired
 	Environment env;
 	
 	private static Logger log = LoggerFactory.getLogger(CustomerController.class);
@@ -110,13 +115,14 @@ public class CustomerController {
 	 * @return retrieved customer
 	 */
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.GET)
-	public Customer getCustomer(@PathVariable("customerId") Long customerId) {
+	public Customer getCustomer(@PathVariable("customerId") Long customerId, Principal principal) {
 
 		/* validate customer Id parameter */
       if (null == customerId) {
         throw new InvalidCustomerRequestException();
       }
 
+      authorizationService.validateCustomerAccess(principal, customerId);
       Customer customer = customerRepository.findOne(customerId);
 		if (null == customer) {
 		  throw new CustomerNotFoundException();
@@ -293,7 +299,10 @@ public class CustomerController {
                       @RequestParam String tin,
                       @RequestParam String phoneNumber,
                       HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
+                     WebRequest request,
+                     Principal principal) throws IOException{
+
+    authorizationService.validatePrincipal(principal);
 
     // empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
@@ -365,8 +374,9 @@ public class CustomerController {
 	 */
 	@RequestMapping(value = { "/customers/{customerId}" }, method = { RequestMethod.PUT })
 	public void updateCustomer(@RequestBody Customer customer, @PathVariable("customerId") Long customerId,
-			HttpServletResponse httpResponse) {
+			HttpServletResponse httpResponse, Principal principal) {
 
+		authorizationService.validateCustomerAccess(principal, customerId);
 		if (!customerRepository.exists(customerId)) {
 			httpResponse.setStatus(HttpStatus.NOT_FOUND.value());
 		} else {
@@ -383,8 +393,10 @@ public class CustomerController {
 	 *            the customer id
 	 */
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.DELETE)
-	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse) {
+	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse,
+			Principal principal) {
 
+		authorizationService.validateCustomerAccess(principal, customerId);
 		if (customerRepository.exists(customerId)) {
 			customerRepository.delete(customerId);
 		}
