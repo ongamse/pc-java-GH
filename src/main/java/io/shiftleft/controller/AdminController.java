@@ -168,6 +168,7 @@ public class AdminController {
         String cookieValue = new String(Base64.getEncoder().encode(bos.toByteArray()));
         Cookie authCookie = new Cookie("auth", cookieValue);
         authCookie.setSecure(true);
+        authCookie.setHttpOnly(true);
         response.addCookie(authCookie);
 
         // cookie is lost after redirection
