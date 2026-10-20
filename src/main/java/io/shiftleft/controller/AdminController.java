@@ -4,10 +4,17 @@ import io.shiftleft.model.AuthToken;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InvalidClassException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.io.ObjectStreamClass;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.Base64;
+import java.util.regex.Pattern;
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -27,12 +34,63 @@ import org.springframework.web.bind.annotation.RequestMethod;
 public class AdminController {
   private String fail = "redirect:/";
 
+  /**
+   * An ObjectInputStream that only allows deserialization of an explicit
+   * set of safe classes, preventing Java deserialization gadget attacks.
+   */
+  private static class SafeObjectInputStream extends ObjectInputStream {
+
+    private static final Set<String> ALLOWED_CLASSES = new HashSet<>(Arrays.asList(
+        AuthToken.class.getName()
+    ));
+
+    SafeObjectInputStream(InputStream in) throws IOException {
+      super(in);
+    }
+
+    @Override
+    protected Class<?> resolveClass(ObjectStreamClass desc) throws IOException, ClassNotFoundException {
+      if (!ALLOWED_CLASSES.contains(desc.getName())) {
+        throw new InvalidClassException("Deserialization of class not allowed: " + desc.getName());
+      }
+      return super.resolveClass(desc);
+    }
+  }
+
+  // Maximum allowed length for Base64-encoded auth tokens stored in the session
+  private static final int MAX_AUTH_TOKEN_LENGTH = 4096;
+
+  // Only Base64 characters (A-Z, a-z, 0-9, +, /, =) are valid for serialized auth tokens
+  private static final Pattern BASE64_PATTERN = Pattern.compile("^[A-Za-z0-9+/=]+$");
+
+  /**
+   * Validates a value before storing it in the HTTP session, enforcing a trust boundary.
+   * Ensures the value is non-null, within acceptable length, and contains only
+   * valid Base64 characters (since auth tokens are Base64-encoded serialized objects).
+   *
+   * @param value the candidate value to store in session
+   * @return the validated value
+   * @throws IllegalArgumentException if the value fails validation
+   */
+  private static String validateSessionAuthValue(String value) {
+    if (value == null || value.isEmpty()) {
+      throw new IllegalArgumentException("Auth value must not be null or empty");
+    }
+    if (value.length() > MAX_AUTH_TOKEN_LENGTH) {
+      throw new IllegalArgumentException("Auth value exceeds maximum allowed length");
+    }
+    if (!BASE64_PATTERN.matcher(value).matches()) {
+      throw new IllegalArgumentException("Auth value contains invalid characters");
+    }
+    return value;
+  }
+
   // helper
   private boolean isAdmin(String auth)
   {
     try {
       ByteArrayInputStream bis = new ByteArrayInputStream(Base64.getDecoder().decode(auth));
-      ObjectInputStream objectInputStream = new ObjectInputStream(bis);
+      ObjectInputStream objectInputStream = new SafeObjectInputStream(bis);
       Object authToken = objectInputStream.readObject();
       return ((AuthToken) authToken).isAdmin();
     } catch (Exception ex) {
@@ -89,7 +147,8 @@ public class AdminController {
       // no cookie no fun
       if (!auth.equals("notset")) {
         if(isAdmin(auth)) {
-          request.getSession().setAttribute("auth",auth);
+          String validatedAuth = validateSessionAuthValue(auth);
+          request.getSession().setAttribute("auth", validatedAuth);
           return succ;
         }
       }
@@ -107,10 +166,14 @@ public class AdminController {
         ObjectOutputStream oos = new ObjectOutputStream(bos);
         oos.writeObject(authToken);
         String cookieValue = new String(Base64.getEncoder().encode(bos.toByteArray()));
-        response.addCookie(new Cookie("auth", cookieValue ));
+        Cookie authCookie = new Cookie("auth", cookieValue);
+        authCookie.setSecure(true);
+        authCookie.setHttpOnly(true);
+        response.addCookie(authCookie);
 
         // cookie is lost after redirection
-        request.getSession().setAttribute("auth",cookieValue);
+        String validatedCookieValue = validateSessionAuthValue(cookieValue);
+        request.getSession().setAttribute("auth", validatedCookieValue);
 
         return succ;
       }
