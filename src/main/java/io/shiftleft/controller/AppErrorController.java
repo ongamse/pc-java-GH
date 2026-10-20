@@ -74,7 +74,8 @@ public class AppErrorController implements ErrorController{
     if (parameter == null) {
       return false;
     }
-    return !"false".equals(parameter.toLowerCase());
+    // Validate input: only an explicit "true" value enables stack traces
+    return "true".equalsIgnoreCase(parameter);
   }
 
   private Map<String, Object> getErrorAttributes(HttpServletRequest request,
