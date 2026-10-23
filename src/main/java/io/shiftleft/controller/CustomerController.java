@@ -22,7 +22,9 @@ import java.util.List;
 
 import java.util.Set;
 import javax.annotation.PostConstruct;
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.http.HttpHeaders;
 import org.apache.http.auth.AuthenticationException;
@@ -80,6 +82,62 @@ public class CustomerController {
 	
 	private static Logger log = LoggerFactory.getLogger(CustomerController.class);
 
+	/**
+	 * Sanitizes a value for use in an HTTP header by stripping CR and LF characters
+	 * to prevent CRLF / header injection (CWE-113).
+	 */
+	private static String sanitizeHeaderValue(String value) {
+		if (value == null) {
+			return null;
+		}
+		return value.replaceAll("[\\r\\n]", "");
+	}
+
+	/**
+	 * Validates that a redirect URL is a safe relative path to prevent open redirect (CWE-601).
+	 * Rejects absolute URLs, protocol-relative URLs, and URLs with scheme indicators.
+	 */
+	private static String validateRedirectPath(String url) {
+		if (url == null) {
+			return "/";
+		}
+		// Strip any leading whitespace that could bypass checks
+		String trimmed = url.trim();
+		// Reject protocol-relative URLs (//evil.com) and absolute URLs with schemes
+		if (trimmed.startsWith("//") || trimmed.contains("://")) {
+			return "/";
+		}
+		// Ensure the path is relative (starts with /)
+		if (!trimmed.startsWith("/")) {
+			trimmed = "/" + trimmed;
+		}
+		return trimmed;
+	}
+
+	/**
+	 * Verifies the authenticated user has access to the requested customer resource.
+	 * Throws an exception with HTTP 403 if not authorized.
+	 */
+	private void verifyCustomerAuthorization(HttpSession session, Long customerId) {
+		if (session == null || session.getAttribute("authenticatedCustomerId") == null) {
+			throw new SecurityException("Authentication required");
+		}
+		Long authenticatedCustomerId = (Long) session.getAttribute("authenticatedCustomerId");
+		if (!authenticatedCustomerId.equals(customerId)) {
+			throw new SecurityException("Access denied: not authorized to access this customer resource");
+		}
+	}
+
+	/**
+	 * Verifies the user is authenticated via session.
+	 * Throws an exception with HTTP 403 if not authenticated.
+	 */
+	private void verifyAuthenticated(HttpSession session) {
+		if (session == null || session.getAttribute("authenticatedCustomerId") == null) {
+			throw new SecurityException("Authentication required");
+		}
+	}
+
 	@PostConstruct
 	public void init() {
 		log.info("Start Loading SalesForce Properties");
@@ -110,13 +168,14 @@ public class CustomerController {
 	 * @return retrieved customer
 	 */
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.GET)
-	public Customer getCustomer(@PathVariable("customerId") Long customerId) {
+	public Customer getCustomer(@PathVariable("customerId") Long customerId, HttpServletRequest httpRequest) {
 
 		/* validate customer Id parameter */
       if (null == customerId) {
         throw new InvalidCustomerRequestException();
       }
 
+      verifyCustomerAuthorization(httpRequest.getSession(false), customerId);
       Customer customer = customerRepository.findOne(customerId);
 		if (null == customer) {
 		  throw new CustomerNotFoundException();
@@ -202,7 +261,7 @@ public class CustomerController {
             // encode the file settings, md5sum is removed
             String s = new String(Base64.getEncoder().encode(filecontent.replace(md5sum, "").getBytes()));
             // setting the new cookie
-            httpResponse.setHeader("Cookie", "settings=" + s + "," + md5sum);
+            httpResponse.setHeader("Cookie", "settings=" + sanitizeHeaderValue(s) + "," + sanitizeHeaderValue(md5sum));
             return;
           }
         }
@@ -226,7 +285,7 @@ public class CustomerController {
       throw new Exception("cookie is incorrect");
     }
 
-    String settingsCookie = request.getHeader("Cookie");
+    String settingsCookie = sanitizeHeaderValue(request.getHeader("Cookie"));
     String[] cookie = settingsCookie.split(",");
 	if(cookie.length<2) {
 	  httpResponse.getOutputStream().println("Malformed cookie");
@@ -238,7 +297,7 @@ public class CustomerController {
     // Check md5sum
     String cookieMD5sum = cookie[1];
     String calcMD5Sum = DigestUtils.md5Hex(base64txt);
-	if(!cookieMD5sum.equals(calcMD5Sum))
+	if(!MessageDigest.isEqual(cookieMD5sum.getBytes(StandardCharsets.UTF_8), calcMD5Sum.getBytes(StandardCharsets.UTF_8)))
     {
       httpResponse.getOutputStream().println("Wrong md5");
       throw new Exception("Invalid MD5");
@@ -248,7 +307,19 @@ public class CustomerController {
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
+    File baseDir = new File(cpr.getPath()).getCanonicalFile();
+    String fileName = settings[0];
+    // Reject path traversal sequences and absolute paths in the filename
+    if (fileName.contains("..") || fileName.startsWith("/") || fileName.startsWith("\\")) {
+      httpResponse.getOutputStream().println("Invalid filename");
+      throw new Exception("Path traversal detected");
+    }
+    File file = new File(baseDir, fileName).getCanonicalFile();
+    // Verify the resolved path is still within the base directory
+    if (!file.toPath().startsWith(baseDir.toPath())) {
+      httpResponse.getOutputStream().println("Invalid filename");
+      throw new Exception("Path traversal detected");
+    }
     if(!file.exists()) {
       file.getParentFile().mkdirs();
     }
@@ -288,22 +359,31 @@ public class CustomerController {
                       @RequestParam String tin,
                       @RequestParam String phoneNumber,
                       HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
+                     WebRequest request, HttpServletRequest httpRequest) throws IOException{
 
+    verifyAuthenticated(httpRequest.getSession(false));
     // empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
     //dateofbirth example -> "1982-01-10"
-    Customer customer1 = new Customer(customerId, clientId, firstName, lastName, DateTime.parse(dateOfBirth).toDate(),
-                                      ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
+    // HTML-escape user-controlled inputs before storing to prevent stored XSS
+    String safeCustomerId = HtmlUtils.htmlEscape(customerId);
+    String safeFirstName = HtmlUtils.htmlEscape(firstName);
+    String safeLastName = HtmlUtils.htmlEscape(lastName);
+    String safeSsn = HtmlUtils.htmlEscape(ssn);
+    String safeSocialSecurityNum = HtmlUtils.htmlEscape(socialSecurityNum);
+    String safeTin = HtmlUtils.htmlEscape(tin);
+    String safePhoneNumber = HtmlUtils.htmlEscape(phoneNumber);
+    Customer customer1 = new Customer(safeCustomerId, clientId, safeFirstName, safeLastName, DateTime.parse(dateOfBirth).toDate(),
+                                      safeSsn, safeSocialSecurityNum, safeTin, safePhoneNumber, new Address("Debug str",
                                       "", "Debug city", "CA", "12345"),
                                       accounts1);
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+    httpResponse.setHeader("Location", sanitizeHeaderValue(validateRedirectPath(
+                           String.format("%s/customers/%s", request.getContextPath(), customer1.getId()))));
 
-    return customer1.toString().toLowerCase().replace("script","");
+    return HtmlUtils.htmlEscape(customer1.toString().toLowerCase());
   }
 
 	/**
@@ -341,13 +421,14 @@ public class CustomerController {
 	 */
 	@RequestMapping(value = { "/customers" }, method = { RequestMethod.POST })
 	public Customer createCustomer(@RequestParam Customer customer, HttpServletResponse httpResponse,
-								   WebRequest request) {
+								   WebRequest request, HttpServletRequest httpRequest) {
 
+		verifyAuthenticated(httpRequest.getSession(false));
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
 		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+				sanitizeHeaderValue(validateRedirectPath(String.format("%s/customers/%s", request.getContextPath(), customer.getId()))));
 
 		return createdcustomer;
 	}
@@ -360,8 +441,9 @@ public class CustomerController {
 	 */
 	@RequestMapping(value = { "/customers/{customerId}" }, method = { RequestMethod.PUT })
 	public void updateCustomer(@RequestBody Customer customer, @PathVariable("customerId") Long customerId,
-			HttpServletResponse httpResponse) {
+			HttpServletResponse httpResponse, HttpServletRequest httpRequest) {
 
+		verifyCustomerAuthorization(httpRequest.getSession(false), customerId);
 		if (!customerRepository.exists(customerId)) {
 			httpResponse.setStatus(HttpStatus.NOT_FOUND.value());
 		} else {
