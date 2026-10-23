@@ -22,7 +22,9 @@ import java.util.List;
 
 import java.util.Set;
 import javax.annotation.PostConstruct;
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.http.HttpHeaders;
 import org.apache.http.auth.AuthenticationException;
@@ -80,6 +82,30 @@ public class CustomerController {
 	
 	private static Logger log = LoggerFactory.getLogger(CustomerController.class);
 
+	/**
+	 * Verifies the authenticated user has access to the requested customer resource.
+	 * Throws an exception with HTTP 403 if not authorized.
+	 */
+	private void verifyCustomerAuthorization(HttpSession session, Long customerId) {
+		if (session == null || session.getAttribute("authenticatedCustomerId") == null) {
+			throw new SecurityException("Authentication required");
+		}
+		Long authenticatedCustomerId = (Long) session.getAttribute("authenticatedCustomerId");
+		if (!authenticatedCustomerId.equals(customerId)) {
+			throw new SecurityException("Access denied: not authorized to access this customer resource");
+		}
+	}
+
+	/**
+	 * Verifies the user is authenticated via session.
+	 * Throws an exception with HTTP 403 if not authenticated.
+	 */
+	private void verifyAuthenticated(HttpSession session) {
+		if (session == null || session.getAttribute("authenticatedCustomerId") == null) {
+			throw new SecurityException("Authentication required");
+		}
+	}
+
 	@PostConstruct
 	public void init() {
 		log.info("Start Loading SalesForce Properties");
@@ -110,13 +136,14 @@ public class CustomerController {
 	 * @return retrieved customer
 	 */
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.GET)
-	public Customer getCustomer(@PathVariable("customerId") Long customerId) {
+	public Customer getCustomer(@PathVariable("customerId") Long customerId, HttpServletRequest httpRequest) {
 
 		/* validate customer Id parameter */
       if (null == customerId) {
         throw new InvalidCustomerRequestException();
       }
 
+      verifyCustomerAuthorization(httpRequest.getSession(false), customerId);
       Customer customer = customerRepository.findOne(customerId);
 		if (null == customer) {
 		  throw new CustomerNotFoundException();
@@ -300,8 +327,9 @@ public class CustomerController {
                       @RequestParam String tin,
                       @RequestParam String phoneNumber,
                       HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
+                     WebRequest request, HttpServletRequest httpRequest) throws IOException{
 
+    verifyAuthenticated(httpRequest.getSession(false));
     // empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
     //dateofbirth example -> "1982-01-10"
@@ -361,8 +389,9 @@ public class CustomerController {
 	 */
 	@RequestMapping(value = { "/customers" }, method = { RequestMethod.POST })
 	public Customer createCustomer(@RequestParam Customer customer, HttpServletResponse httpResponse,
-								   WebRequest request) {
+								   WebRequest request, HttpServletRequest httpRequest) {
 
+		verifyAuthenticated(httpRequest.getSession(false));
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
@@ -380,8 +409,9 @@ public class CustomerController {
 	 */
 	@RequestMapping(value = { "/customers/{customerId}" }, method = { RequestMethod.PUT })
 	public void updateCustomer(@RequestBody Customer customer, @PathVariable("customerId") Long customerId,
-			HttpServletResponse httpResponse) {
+			HttpServletResponse httpResponse, HttpServletRequest httpRequest) {
 
+		verifyCustomerAuthorization(httpRequest.getSession(false), customerId);
 		if (!customerRepository.exists(customerId)) {
 			httpResponse.setStatus(HttpStatus.NOT_FOUND.value());
 		} else {

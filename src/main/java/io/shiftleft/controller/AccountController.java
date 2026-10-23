@@ -4,6 +4,7 @@ import io.shiftleft.data.DataLoader;
 import io.shiftleft.model.Account;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
 
 import io.shiftleft.repository.AccountRepository;
 
@@ -23,7 +24,21 @@ public class AccountController {
     private AccountRepository accountRepository;
 
     private static Logger log = LoggerFactory.getLogger(DataLoader.class);
-    
+
+    /**
+     * Verifies the authenticated user has access to the requested account resource.
+     * Throws SecurityException with HTTP 403 if not authorized.
+     */
+    private void verifyAccountAuthorization(HttpSession session, long accountId) {
+        if (session == null || session.getAttribute("authenticatedAccountId") == null) {
+            throw new SecurityException("Authentication required");
+        }
+        Long authenticatedAccountId = (Long) session.getAttribute("authenticatedAccountId");
+        if (!authenticatedAccountId.equals(accountId)) {
+            throw new SecurityException("Access denied: not authorized to access this account resource");
+        }
+    }
+
     @GetMapping("/account")
     public Iterable<Account> getAccountList(HttpServletResponse response, HttpServletRequest request) {
         response.addHeader("test-header-detection", new Account().toString());
@@ -39,13 +54,15 @@ public class AccountController {
     }
 
     @GetMapping("/account/{accountId}")
-    public Account getAccount(@PathVariable long accountId) {
+    public Account getAccount(@PathVariable long accountId, HttpServletRequest httpRequest) {
+        verifyAccountAuthorization(httpRequest.getSession(false), accountId);
         log.info("Account Data is {}", this.accountRepository.findOne(1l).toString());
         return this.accountRepository.findOne(accountId);
     }
 
     @PostMapping("/account/{accountId}/deposit")
-    public Account depositIntoAccount(@RequestParam double amount, @PathVariable long accountId) {
+    public Account depositIntoAccount(@RequestParam double amount, @PathVariable long accountId, HttpServletRequest httpRequest) {
+        verifyAccountAuthorization(httpRequest.getSession(false), accountId);
         Account account = this.accountRepository.findOne(accountId);
         log.info("Account Data is {}", account.toString());
         account.deposit(amount);
@@ -54,7 +71,8 @@ public class AccountController {
     }
 
     @PostMapping("/account/{accountId}/withdraw")
-    public Account withdrawFromAccount(@RequestParam double amount, @PathVariable long accountId) {
+    public Account withdrawFromAccount(@RequestParam double amount, @PathVariable long accountId, HttpServletRequest httpRequest) {
+        verifyAccountAuthorization(httpRequest.getSession(false), accountId);
         Account account = this.accountRepository.findOne(accountId);
         account.withdraw(amount);
         this.accountRepository.save(account);
@@ -63,7 +81,8 @@ public class AccountController {
     }
 
     @PostMapping("/account/{accountId}/addInterest")
-    public Account addInterestToAccount(@RequestParam double amount, @PathVariable long accountId) {
+    public Account addInterestToAccount(@RequestParam double amount, @PathVariable long accountId, HttpServletRequest httpRequest) {
+        verifyAccountAuthorization(httpRequest.getSession(false), accountId);
         Account account = this.accountRepository.findOne(accountId);
         account.addInterest();
         this.accountRepository.save(account);
