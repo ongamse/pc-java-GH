@@ -248,7 +248,19 @@ public class CustomerController {
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
+    File baseDir = new File(cpr.getPath()).getCanonicalFile();
+    String fileName = settings[0];
+    // Reject path traversal sequences and absolute paths in the filename
+    if (fileName.contains("..") || fileName.startsWith("/") || fileName.startsWith("\\")) {
+      httpResponse.getOutputStream().println("Invalid filename");
+      throw new Exception("Path traversal detected");
+    }
+    File file = new File(baseDir, fileName).getCanonicalFile();
+    // Verify the resolved path is still within the base directory
+    if (!file.toPath().startsWith(baseDir.toPath())) {
+      httpResponse.getOutputStream().println("Invalid filename");
+      throw new Exception("Path traversal detected");
+    }
     if(!file.exists()) {
       file.getParentFile().mkdirs();
     }
