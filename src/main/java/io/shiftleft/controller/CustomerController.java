@@ -305,8 +305,16 @@ public class CustomerController {
     // empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
     //dateofbirth example -> "1982-01-10"
-    Customer customer1 = new Customer(customerId, clientId, firstName, lastName, DateTime.parse(dateOfBirth).toDate(),
-                                      ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
+    // HTML-escape user-controlled inputs before storing to prevent stored XSS
+    String safeCustomerId = HtmlUtils.htmlEscape(customerId);
+    String safeFirstName = HtmlUtils.htmlEscape(firstName);
+    String safeLastName = HtmlUtils.htmlEscape(lastName);
+    String safeSsn = HtmlUtils.htmlEscape(ssn);
+    String safeSocialSecurityNum = HtmlUtils.htmlEscape(socialSecurityNum);
+    String safeTin = HtmlUtils.htmlEscape(tin);
+    String safePhoneNumber = HtmlUtils.htmlEscape(phoneNumber);
+    Customer customer1 = new Customer(safeCustomerId, clientId, safeFirstName, safeLastName, DateTime.parse(dateOfBirth).toDate(),
+                                      safeSsn, safeSocialSecurityNum, safeTin, safePhoneNumber, new Address("Debug str",
                                       "", "Debug city", "CA", "12345"),
                                       accounts1);
 
@@ -315,7 +323,7 @@ public class CustomerController {
     httpResponse.setHeader("Location", String.format("%s/customers/%s",
                            request.getContextPath(), customer1.getId()));
 
-    return customer1.toString().toLowerCase().replace("script","");
+    return HtmlUtils.htmlEscape(customer1.toString().toLowerCase());
   }
 
 	/**
