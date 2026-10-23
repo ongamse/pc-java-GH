@@ -94,6 +94,27 @@ public class CustomerController {
 	}
 
 	/**
+	 * Validates that a redirect URL is a safe relative path to prevent open redirect (CWE-601).
+	 * Rejects absolute URLs, protocol-relative URLs, and URLs with scheme indicators.
+	 */
+	private static String validateRedirectPath(String url) {
+		if (url == null) {
+			return "/";
+		}
+		// Strip any leading whitespace that could bypass checks
+		String trimmed = url.trim();
+		// Reject protocol-relative URLs (//evil.com) and absolute URLs with schemes
+		if (trimmed.startsWith("//") || trimmed.contains("://")) {
+			return "/";
+		}
+		// Ensure the path is relative (starts with /)
+		if (!trimmed.startsWith("/")) {
+			trimmed = "/" + trimmed;
+		}
+		return trimmed;
+	}
+
+	/**
 	 * Verifies the authenticated user has access to the requested customer resource.
 	 * Throws an exception with HTTP 403 if not authorized.
 	 */
@@ -359,8 +380,8 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", sanitizeHeaderValue(String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId())));
+    httpResponse.setHeader("Location", sanitizeHeaderValue(validateRedirectPath(
+                           String.format("%s/customers/%s", request.getContextPath(), customer1.getId()))));
 
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase());
   }
@@ -407,7 +428,7 @@ public class CustomerController {
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
 		httpResponse.setHeader("Location",
-				sanitizeHeaderValue(String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
+				sanitizeHeaderValue(validateRedirectPath(String.format("%s/customers/%s", request.getContextPath(), customer.getId()))));
 
 		return createdcustomer;
 	}
