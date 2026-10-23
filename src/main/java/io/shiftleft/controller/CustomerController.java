@@ -83,6 +83,17 @@ public class CustomerController {
 	private static Logger log = LoggerFactory.getLogger(CustomerController.class);
 
 	/**
+	 * Sanitizes a value for use in an HTTP header by stripping CR and LF characters
+	 * to prevent CRLF / header injection (CWE-113).
+	 */
+	private static String sanitizeHeaderValue(String value) {
+		if (value == null) {
+			return null;
+		}
+		return value.replaceAll("[\\r\\n]", "");
+	}
+
+	/**
 	 * Verifies the authenticated user has access to the requested customer resource.
 	 * Throws an exception with HTTP 403 if not authorized.
 	 */
@@ -229,7 +240,7 @@ public class CustomerController {
             // encode the file settings, md5sum is removed
             String s = new String(Base64.getEncoder().encode(filecontent.replace(md5sum, "").getBytes()));
             // setting the new cookie
-            httpResponse.setHeader("Cookie", "settings=" + s + "," + md5sum);
+            httpResponse.setHeader("Cookie", "settings=" + sanitizeHeaderValue(s) + "," + sanitizeHeaderValue(md5sum));
             return;
           }
         }
@@ -253,7 +264,7 @@ public class CustomerController {
       throw new Exception("cookie is incorrect");
     }
 
-    String settingsCookie = request.getHeader("Cookie");
+    String settingsCookie = sanitizeHeaderValue(request.getHeader("Cookie"));
     String[] cookie = settingsCookie.split(",");
 	if(cookie.length<2) {
 	  httpResponse.getOutputStream().println("Malformed cookie");
@@ -348,8 +359,8 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+    httpResponse.setHeader("Location", sanitizeHeaderValue(String.format("%s/customers/%s",
+                           request.getContextPath(), customer1.getId())));
 
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase());
   }
@@ -396,7 +407,7 @@ public class CustomerController {
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
 		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+				sanitizeHeaderValue(String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
 
 		return createdcustomer;
 	}
