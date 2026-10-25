@@ -1,9 +1,6 @@
 package io.shiftleft.model;
 
-import java.io.Serializable;
-
-public class AuthToken implements Serializable {
-  private static final long serialVersionUID = 1L;
+public class AuthToken {
 
   // yes there are only 2 roles so
   // having them in this class should be fine
@@ -11,6 +8,11 @@ public class AuthToken implements Serializable {
   public static int USER = 1;
 
   private int role;
+
+  // No-arg constructor required for JSON deserialization
+  public AuthToken() {
+    this.role = USER;
+  }
 
   public AuthToken(int role) {
     this.role = role;
