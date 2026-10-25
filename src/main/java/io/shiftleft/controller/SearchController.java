@@ -3,6 +3,7 @@ package io.shiftleft.controller;
 import java.util.Collections;
 import java.util.regex.Pattern;
 import javax.servlet.http.HttpServletRequest;
+import org.springframework.web.util.HtmlUtils;
 import javax.servlet.http.HttpServletResponse;
 import org.springframework.expression.Expression;
 import org.springframework.expression.ExpressionParser;
@@ -46,6 +47,6 @@ public class SearchController {
     } catch (Exception ex) {
       System.out.println(ex.getMessage());
     }
-    return message.toString();
+    return HtmlUtils.htmlEscape(message.toString());
   }
 }
