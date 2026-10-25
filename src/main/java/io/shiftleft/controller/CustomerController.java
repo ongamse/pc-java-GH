@@ -94,6 +94,23 @@ public class CustomerController {
 		return value.replaceAll("[\\r\\n]", "");
 	}
 
+	/**
+	 * Validates that a URL intended for a Location header is a safe relative path.
+	 * Rejects absolute URLs (scheme://), protocol-relative URLs (//), and
+	 * any URL that does not start with "/". Also strips CR/LF to prevent
+	 * header injection. Returns "/" as a safe fallback if the URL is unsafe.
+	 */
+	private static String sanitizeRedirectUrl(String url) {
+		if (url == null || url.isEmpty()) {
+			return "/";
+		}
+		String sanitized = url.replaceAll("[\\r\\n]", "");
+		if (sanitized.contains("://") || sanitized.startsWith("//") || !sanitized.startsWith("/")) {
+			return "/";
+		}
+		return sanitized;
+	}
+
 	@PostConstruct
 	public void init() {
 		log.info("Start Loading SalesForce Properties");
@@ -342,8 +359,9 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", sanitizeHeaderValue(String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId())));
+    String debugLocation = sanitizeRedirectUrl(String.format("%s/customers/%s",
+                           request.getContextPath(), customer1.getId()));
+    httpResponse.setHeader("Location", debugLocation);
 
     return HtmlUtils.htmlEscape(customer1.toString());
   }
@@ -388,8 +406,9 @@ public class CustomerController {
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				sanitizeHeaderValue(String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
+		String createLocation = sanitizeRedirectUrl(String.format("%s/customers/%s",
+				request.getContextPath(), customer.getId()));
+		httpResponse.setHeader("Location", createLocation);
 
 		return createdcustomer;
 	}
