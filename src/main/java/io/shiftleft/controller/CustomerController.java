@@ -55,10 +55,13 @@ import org.springframework.web.context.request.WebRequest;
 import com.ulisesbocchio.jasyptspringboot.annotation.EnableEncryptableProperties;
 
 import io.shiftleft.data.DataLoader;
+import io.shiftleft.exception.AccessDeniedException;
 import io.shiftleft.exception.CustomerNotFoundException;
 import io.shiftleft.exception.InvalidCustomerRequestException;
 import io.shiftleft.model.Customer;
 import io.shiftleft.repository.CustomerRepository;
+
+import java.security.Principal;
 
 import org.springframework.web.util.HtmlUtils;
 
@@ -104,13 +107,26 @@ public class CustomerController {
 	}
 
 	/**
+	 * Verifies that the authenticated user is authorized to access the given customer record.
+	 * Throws AccessDeniedException if the principal is null or does not match the customer's customerId.
+	 */
+	private void verifyCustomerOwnership(Principal principal, Customer customer) {
+		if (principal == null) {
+			throw new AccessDeniedException();
+		}
+		if (customer != null && !principal.getName().equals(customer.getCustomerId())) {
+			throw new AccessDeniedException();
+		}
+	}
+
+	/**
 	 * Get customer using id. Returns HTTP 404 if customer not found
 	 *
 	 * @param customerId
 	 * @return retrieved customer
 	 */
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.GET)
-	public Customer getCustomer(@PathVariable("customerId") Long customerId) {
+	public Customer getCustomer(@PathVariable("customerId") Long customerId, Principal principal) {
 
 		/* validate customer Id parameter */
       if (null == customerId) {
@@ -121,6 +137,8 @@ public class CustomerController {
 		if (null == customer) {
 		  throw new CustomerNotFoundException();
 	  }
+
+	  verifyCustomerOwnership(principal, customer);
 
 	  Account account = new Account(4242l,1234, "savings", 1, 0);
 	  log.info("Account Data is {}", account);
@@ -294,7 +312,11 @@ public class CustomerController {
                       @RequestParam String tin,
                       @RequestParam String phoneNumber,
                       HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
+                     WebRequest request, Principal principal) throws IOException{
+
+    if (principal == null) {
+      throw new AccessDeniedException();
+    }
 
     // empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
@@ -303,6 +325,9 @@ public class CustomerController {
                                       ssn, socialSecurityNum, tin, phoneNumber, new Address("Debug str",
                                       "", "Debug city", "CA", "12345"),
                                       accounts1);
+
+    // Verify the authenticated user matches the customer being created
+    verifyCustomerOwnership(principal, customer1);
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
@@ -366,11 +391,13 @@ public class CustomerController {
 	 */
 	@RequestMapping(value = { "/customers/{customerId}" }, method = { RequestMethod.PUT })
 	public void updateCustomer(@RequestBody Customer customer, @PathVariable("customerId") Long customerId,
-			HttpServletResponse httpResponse) {
+			HttpServletResponse httpResponse, Principal principal) {
 
 		if (!customerRepository.exists(customerId)) {
 			httpResponse.setStatus(HttpStatus.NOT_FOUND.value());
 		} else {
+			Customer existingCustomer = customerRepository.findOne(customerId);
+			verifyCustomerOwnership(principal, existingCustomer);
 			customerRepository.save(customer);
 			httpResponse.setStatus(HttpStatus.NO_CONTENT.value());
 		}
@@ -384,9 +411,12 @@ public class CustomerController {
 	 *            the customer id
 	 */
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.DELETE)
-	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse) {
+	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse,
+			Principal principal) {
 
 		if (customerRepository.exists(customerId)) {
+			Customer existingCustomer = customerRepository.findOne(customerId);
+			verifyCustomerOwnership(principal, existingCustomer);
 			customerRepository.delete(customerId);
 		}
 
