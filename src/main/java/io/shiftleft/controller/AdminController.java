@@ -1,11 +1,8 @@
 package io.shiftleft.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.shiftleft.model.AuthToken;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import javax.servlet.http.Cookie;
@@ -27,14 +24,15 @@ import org.springframework.web.bind.annotation.RequestMethod;
 public class AdminController {
   private String fail = "redirect:/";
 
+  private static final ObjectMapper objectMapper = new ObjectMapper();
+
   // helper
   private boolean isAdmin(String auth)
   {
     try {
-      ByteArrayInputStream bis = new ByteArrayInputStream(Base64.getDecoder().decode(auth));
-      ObjectInputStream objectInputStream = new ObjectInputStream(bis);
-      Object authToken = objectInputStream.readObject();
-      return ((AuthToken) authToken).isAdmin();
+      byte[] decoded = Base64.getDecoder().decode(auth);
+      AuthToken authToken = objectMapper.readValue(decoded, AuthToken.class);
+      return authToken.isAdmin();
     } catch (Exception ex) {
       System.out.println(" cookie cannot be deserialized: "+ex.getMessage());
       return false;
@@ -103,10 +101,8 @@ public class AdminController {
       if(pass[1] != null && pass[1].length()>0 && pass[1].equals("shiftleftsecret"))
       {
         AuthToken authToken = new AuthToken(AuthToken.ADMIN);
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        ObjectOutputStream oos = new ObjectOutputStream(bos);
-        oos.writeObject(authToken);
-        String cookieValue = new String(Base64.getEncoder().encode(bos.toByteArray()));
+        byte[] jsonBytes = objectMapper.writeValueAsBytes(authToken);
+        String cookieValue = Base64.getEncoder().encodeToString(jsonBytes);
         response.addCookie(new Cookie("auth", cookieValue ));
 
         // cookie is lost after redirection

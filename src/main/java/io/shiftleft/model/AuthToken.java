@@ -12,6 +12,10 @@ public class AuthToken implements Serializable {
 
   private int role;
 
+  public AuthToken() {
+    this.role = USER;
+  }
+
   public AuthToken(int role) {
     this.role = role;
   }
