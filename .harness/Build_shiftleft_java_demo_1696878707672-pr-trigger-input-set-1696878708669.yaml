@@ -1,6 +1,6 @@
 inputSet:
-  name: Build_shiftleft_java_demo_1696878707672-pr-trigger-input-set
-  identifier: Build_shiftleft_java_demo_1696878707672prtriggerinputset
+  name: Build_shiftleft_java_demo_1696878707672-pr-trigger-input-set  # not a secret: auto-generated Harness resource name
+  identifier: Build_shiftleft_java_demo_1696878707672prtriggerinputset  # not a secret: auto-generated Harness resource identifier
   orgIdentifier: default
   projectIdentifier: QwietjavaHarn
   pipeline:

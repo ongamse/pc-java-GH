@@ -1,6 +1,6 @@
 inputSet:
-  name: Build_shiftleft_java_demo_1696867748935-push-trigger-input-set
-  identifier: Build_shiftleft_java_demo_1696867748935pushtriggerinputset
+  name: Build_shiftleft_java_demo_1696867748935-push-trigger-input-set  # not a secret: auto-generated Harness resource name
+  identifier: Build_shiftleft_java_demo_1696867748935pushtriggerinputset  # not a secret: auto-generated Harness resource identifier
   orgIdentifier: default
   projectIdentifier: QwietjavaHarness
   pipeline:
