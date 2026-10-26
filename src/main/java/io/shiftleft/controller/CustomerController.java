@@ -94,6 +94,21 @@ public class CustomerController {
 	}
 
 	/**
+	 * Validate that a path is a safe local path to prevent open redirect.
+	 * Rejects absolute URLs (scheme-based or protocol-relative) and ensures
+	 * the result can only redirect within the same origin.
+	 */
+	private static String validateLocalPath(String path) {
+		if (path == null || path.isEmpty()) {
+			return "";
+		}
+		if (path.contains("://") || path.startsWith("//") || path.contains("\\")) {
+			return "";
+		}
+		return path;
+	}
+
+	/**
 	 * Verify the authenticated user is authorized to access the given customer record.
 	 */
 	private void authorizeCustomerAccess(Principal principal, Long customerId) {
@@ -347,7 +362,7 @@ public class CustomerController {
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
     httpResponse.setHeader("Location", sanitizeHeaderValue(String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId())));
+                           validateLocalPath(request.getContextPath()), customer1.getId())));
 
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase());
   }
