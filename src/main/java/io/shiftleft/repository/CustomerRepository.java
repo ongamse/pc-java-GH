@@ -8,4 +8,5 @@ import io.shiftleft.model.Customer;
 
 public interface CustomerRepository extends CrudRepository<Customer, Long> {
 	public List<Customer> findByFirstName(String firstName);
+	public Customer findByCustomerId(String customerId);
 }

@@ -14,6 +14,7 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.Principal;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Date;
@@ -57,6 +58,7 @@ import com.ulisesbocchio.jasyptspringboot.annotation.EnableEncryptableProperties
 import io.shiftleft.data.DataLoader;
 import io.shiftleft.exception.CustomerNotFoundException;
 import io.shiftleft.exception.InvalidCustomerRequestException;
+import io.shiftleft.exception.UnauthorizedAccessException;
 import io.shiftleft.model.Customer;
 import io.shiftleft.repository.CustomerRepository;
 
@@ -79,6 +81,22 @@ public class CustomerController {
 	Environment env;
 	
 	private static Logger log = LoggerFactory.getLogger(CustomerController.class);
+
+	/**
+	 * Verify the authenticated user is authorized to access the given customer record.
+	 */
+	private void authorizeCustomerAccess(Principal principal, Long customerId) {
+		if (principal == null) {
+			throw new UnauthorizedAccessException();
+		}
+		Customer owner = customerRepository.findOne(customerId);
+		if (owner == null) {
+			throw new CustomerNotFoundException();
+		}
+		if (!principal.getName().equals(owner.getCustomerId())) {
+			throw new UnauthorizedAccessException();
+		}
+	}
 
 	@PostConstruct
 	public void init() {
@@ -110,13 +128,14 @@ public class CustomerController {
 	 * @return retrieved customer
 	 */
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.GET)
-	public Customer getCustomer(@PathVariable("customerId") Long customerId) {
+	public Customer getCustomer(@PathVariable("customerId") Long customerId, Principal principal) {
 
 		/* validate customer Id parameter */
       if (null == customerId) {
         throw new InvalidCustomerRequestException();
       }
 
+      authorizeCustomerAccess(principal, customerId);
       Customer customer = customerRepository.findOne(customerId);
 		if (null == customer) {
 		  throw new CustomerNotFoundException();
@@ -300,7 +319,11 @@ public class CustomerController {
                       @RequestParam String tin,
                       @RequestParam String phoneNumber,
                       HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
+                     WebRequest request, Principal principal) throws IOException{
+
+    if (principal == null || !principal.getName().equals(customerId)) {
+      throw new UnauthorizedAccessException();
+    }
 
     // empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
@@ -353,7 +376,11 @@ public class CustomerController {
 	 */
 	@RequestMapping(value = { "/customers" }, method = { RequestMethod.POST })
 	public Customer createCustomer(@RequestParam Customer customer, HttpServletResponse httpResponse,
-								   WebRequest request) {
+								   WebRequest request, Principal principal) {
+
+		if (principal == null || !principal.getName().equals(customer.getCustomerId())) {
+			throw new UnauthorizedAccessException();
+		}
 
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
@@ -372,8 +399,9 @@ public class CustomerController {
 	 */
 	@RequestMapping(value = { "/customers/{customerId}" }, method = { RequestMethod.PUT })
 	public void updateCustomer(@RequestBody Customer customer, @PathVariable("customerId") Long customerId,
-			HttpServletResponse httpResponse) {
+			HttpServletResponse httpResponse, Principal principal) {
 
+		authorizeCustomerAccess(principal, customerId);
 		if (!customerRepository.exists(customerId)) {
 			httpResponse.setStatus(HttpStatus.NOT_FOUND.value());
 		} else {
@@ -390,8 +418,10 @@ public class CustomerController {
 	 *            the customer id
 	 */
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.DELETE)
-	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse) {
+	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse,
+			Principal principal) {
 
+		authorizeCustomerAccess(principal, customerId);
 		if (customerRepository.exists(customerId)) {
 			customerRepository.delete(customerId);
 		}
