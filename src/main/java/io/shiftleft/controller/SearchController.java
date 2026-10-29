@@ -6,6 +6,8 @@ import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.util.HtmlUtils;
 
 
 /**
@@ -15,8 +17,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 public class SearchController {
 
   @RequestMapping(value = "/search/user", method = RequestMethod.GET)
+  @ResponseBody
   public String doGetSearch(@RequestParam String foo, HttpServletResponse response, HttpServletRequest request) {
     // The search term is untrusted data: treat it as a literal and never evaluate it as an expression.
-    return foo;
+    return HtmlUtils.htmlEscape(foo);
   }
 }
