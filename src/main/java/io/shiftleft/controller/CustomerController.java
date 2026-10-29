@@ -21,6 +21,7 @@ import java.util.HashSet;
 import java.util.List;
 
 import java.util.Set;
+import java.util.regex.Pattern;
 import javax.annotation.PostConstruct;
 import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.codec.digest.DigestUtils;
@@ -105,6 +106,30 @@ public class CustomerController {
 			}
 		}
 		return value;
+	}
+
+	private static final Pattern SAFE_CONTEXT_PATH = Pattern.compile("(/[A-Za-z0-9._~-]+)*");
+	private static final Pattern SAFE_ID = Pattern.compile("-?[0-9]{1,19}");
+
+	/**
+	 * Build a server-controlled, site-relative Location for a customer resource.
+	 * The request-derived context path is validated (empty or "/segment..." only);
+	 * anything that could produce an off-site target (scheme, "//host", backslash,
+	 * dot segments) is rejected, failing closed.
+	 */
+	private static String buildCustomerLocation(WebRequest request, Object customerId) {
+		String contextPath = request.getContextPath();
+		if (contextPath == null) {
+			contextPath = "";
+		}
+		if (!SAFE_CONTEXT_PATH.matcher(contextPath).matches() || contextPath.contains("..")) {
+			throw new IllegalArgumentException("invalid redirect target");
+		}
+		String id = String.valueOf(customerId);
+		if (!SAFE_ID.matcher(id).matches()) {
+			throw new IllegalArgumentException("invalid redirect target");
+		}
+		return requireSafeHeaderValue(contextPath + "/customers/" + id);
 	}
 
 	private void dispatchEventToSalesForce(String event)
@@ -326,8 +351,7 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", requireSafeHeaderValue(String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId())));
+    httpResponse.setHeader("Location", buildCustomerLocation(request, customer1.getId()));
 
     // customer fields are attacker-controlled and the response is rendered as HTML: encode it
     return HtmlUtils.htmlEscape(customer1.toString());
@@ -373,8 +397,7 @@ public class CustomerController {
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				requireSafeHeaderValue(String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
+		httpResponse.setHeader("Location", buildCustomerLocation(request, customer.getId()));
 
 		return createdcustomer;
 	}
