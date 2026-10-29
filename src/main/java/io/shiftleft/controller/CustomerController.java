@@ -248,7 +248,13 @@ public class CustomerController {
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
+	  File baseDir = new File(cpr.getPath()).getCanonicalFile();
+	  File file = new File(baseDir, settings[0]).getCanonicalFile();
+	  // confine writes to the storage base directory (reject traversal / absolute paths)
+	  if (!file.toPath().startsWith(baseDir.toPath()) || file.equals(baseDir)) {
+	    httpResponse.getOutputStream().println("Invalid settings file");
+	    throw new Exception("invalid settings file name");
+	  }
     if(!file.exists()) {
       file.getParentFile().mkdirs();
     }
