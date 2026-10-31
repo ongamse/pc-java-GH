@@ -107,6 +107,20 @@ public class CustomerController {
 		return value;
 	}
 
+	private static final java.util.regex.Pattern SAFE_CONTEXT_PATH = java.util.regex.Pattern
+			.compile("^(/[A-Za-z0-9._~-]+)*$");
+
+	/**
+	 * Builds a same-origin, relative redirect target for a customer. The
+	 * request-derived context path is only used when it is a plain sequence of
+	 * path segments; anything else (absolute URL, scheme, protocol-relative
+	 * "//", backslashes, ...) fails closed to the application root.
+	 */
+	private static String safeCustomerLocation(String contextPath, long customerId) {
+		String prefix = (contextPath != null && SAFE_CONTEXT_PATH.matcher(contextPath).matches()) ? contextPath : "";
+		return safeHeaderValue(prefix + "/customers/" + customerId);
+	}
+
 	private void dispatchEventToSalesForce(String event)
 			throws ClientProtocolException, IOException, AuthenticationException {
 		CloseableHttpClient client = HttpClients.createDefault();
@@ -327,8 +341,7 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", safeHeaderValue(String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId())));
+    httpResponse.setHeader("Location", safeCustomerLocation(request.getContextPath(), customer1.getId()));
 
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
   }
@@ -373,8 +386,7 @@ public class CustomerController {
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				safeHeaderValue(String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
+		httpResponse.setHeader("Location", safeCustomerLocation(request.getContextPath(), customer.getId()));
 
 		return createdcustomer;
 	}
