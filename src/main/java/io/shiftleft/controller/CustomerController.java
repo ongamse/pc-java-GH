@@ -8,10 +8,13 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
@@ -22,6 +25,7 @@ import java.util.List;
 
 import java.util.Set;
 import javax.annotation.PostConstruct;
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.http.HttpHeaders;
@@ -104,13 +108,48 @@ public class CustomerController {
 	}
 
 	/**
+	 * Removes CR, LF and all other ISO control characters from a value that is
+	 * about to be written into an HTTP response header (prevents CRLF / response
+	 * splitting header injection).
+	 */
+	private static String sanitizeHeaderValue(String value) {
+		if (value == null) {
+			return "";
+		}
+		StringBuilder sb = new StringBuilder(value.length());
+		for (int i = 0; i < value.length(); i++) {
+			char c = value.charAt(i);
+			if (!Character.isISOControl(c)) {
+				sb.append(c);
+			}
+		}
+		return sb.toString();
+	}
+
+	/**
+	 * Builds a same-origin, relative Location value for a customer resource from
+	 * the server-configured context path (never from request-derived data) and a
+	 * numeric id. A context path that is not a plain absolute path is ignored.
+	 */
+	private String customerLocation(long customerId) {
+		String base = env.getProperty("server.context-path", "");
+		if (base == null || !base.matches("^(/[A-Za-z0-9._~-]+)*$")) {
+			base = "";
+		}
+		return base + "/customers/" + customerId;
+	}
+
+	/**
 	 * Get customer using id. Returns HTTP 404 if customer not found
 	 *
 	 * @param customerId
 	 * @return retrieved customer
 	 */
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.GET)
-	public Customer getCustomer(@PathVariable("customerId") Long customerId) {
+	public Customer getCustomer(@PathVariable("customerId") Long customerId, HttpServletRequest servletRequest) {
+
+		/* authorize before the client-supplied id is used to read data */
+		AdminController.requireAdminSession(servletRequest);
 
 		/* validate customer Id parameter */
       if (null == customerId) {
@@ -202,7 +241,7 @@ public class CustomerController {
             // encode the file settings, md5sum is removed
             String s = new String(Base64.getEncoder().encode(filecontent.replace(md5sum, "").getBytes()));
             // setting the new cookie
-            httpResponse.setHeader("Cookie", "settings=" + s + "," + md5sum);
+            httpResponse.setHeader("Cookie", sanitizeHeaderValue("settings=" + s + "," + md5sum));
             return;
           }
         }
@@ -238,7 +277,7 @@ public class CustomerController {
     // Check md5sum
     String cookieMD5sum = cookie[1];
     String calcMD5Sum = DigestUtils.md5Hex(base64txt);
-	if(!cookieMD5sum.equals(calcMD5Sum))
+	if(!MessageDigest.isEqual(cookieMD5sum.getBytes(StandardCharsets.UTF_8), calcMD5Sum.getBytes(StandardCharsets.UTF_8)))
     {
       httpResponse.getOutputStream().println("Wrong md5");
       throw new Exception("Invalid MD5");
@@ -248,12 +287,18 @@ public class CustomerController {
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
-    if(!file.exists()) {
-      file.getParentFile().mkdirs();
+    Path baseDir = Paths.get(cpr.getPath()).toAbsolutePath().normalize();
+    Path target = baseDir.resolve(settings[0]).normalize();
+    // reject path traversal: the resolved target must stay strictly inside the base directory
+    if (!target.startsWith(baseDir) || target.equals(baseDir)) {
+      httpResponse.getOutputStream().println("Invalid file name");
+      throw new Exception("Invalid settings file name");
+    }
+    if (!Files.exists(target)) {
+      Files.createDirectories(target.getParent());
     }
 
-    FileOutputStream fos = new FileOutputStream(file, true);
+    OutputStream fos = Files.newOutputStream(target, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
     // First entry is the filename -> remove it
     String[] settingsArr = Arrays.copyOfRange(settings, 1, settings.length);
     // on setting at a linez
@@ -288,7 +333,11 @@ public class CustomerController {
                       @RequestParam String tin,
                       @RequestParam String phoneNumber,
                       HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
+                     WebRequest request,
+                     HttpServletRequest servletRequest) throws IOException{
+
+    // authorize before the client-supplied customerId is used to write data
+    AdminController.requireAdminSession(servletRequest);
 
     // empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
@@ -300,10 +349,10 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+    httpResponse.setHeader("Location", customerLocation(customer1.getId()));
 
-    return customer1.toString().toLowerCase().replace("script","");
+    // response is served as HTML by default: HTML-encode attacker-controlled fields (e.g. phoneNumber)
+    return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
   }
 
 	/**
@@ -346,8 +395,7 @@ public class CustomerController {
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+		httpResponse.setHeader("Location", customerLocation(customer.getId()));
 
 		return createdcustomer;
 	}
@@ -360,7 +408,9 @@ public class CustomerController {
 	 */
 	@RequestMapping(value = { "/customers/{customerId}" }, method = { RequestMethod.PUT })
 	public void updateCustomer(@RequestBody Customer customer, @PathVariable("customerId") Long customerId,
-			HttpServletResponse httpResponse) {
+			HttpServletResponse httpResponse, HttpServletRequest servletRequest) {
+
+		AdminController.requireAdminSession(servletRequest);
 
 		if (!customerRepository.exists(customerId)) {
 			httpResponse.setStatus(HttpStatus.NOT_FOUND.value());
@@ -378,7 +428,10 @@ public class CustomerController {
 	 *            the customer id
 	 */
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.DELETE)
-	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse) {
+	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse,
+			HttpServletRequest servletRequest) {
+
+		AdminController.requireAdminSession(servletRequest);
 
 		if (customerRepository.exists(customerId)) {
 			customerRepository.delete(customerId);
