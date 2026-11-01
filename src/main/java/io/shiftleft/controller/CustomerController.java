@@ -108,6 +108,25 @@ public class CustomerController {
 	}
 
 	/**
+	 * Removes CR, LF and all other ISO control characters from a value that is
+	 * about to be written into an HTTP response header (prevents CRLF / response
+	 * splitting header injection).
+	 */
+	private static String sanitizeHeaderValue(String value) {
+		if (value == null) {
+			return "";
+		}
+		StringBuilder sb = new StringBuilder(value.length());
+		for (int i = 0; i < value.length(); i++) {
+			char c = value.charAt(i);
+			if (!Character.isISOControl(c)) {
+				sb.append(c);
+			}
+		}
+		return sb.toString();
+	}
+
+	/**
 	 * Get customer using id. Returns HTTP 404 if customer not found
 	 *
 	 * @param customerId
@@ -209,7 +228,7 @@ public class CustomerController {
             // encode the file settings, md5sum is removed
             String s = new String(Base64.getEncoder().encode(filecontent.replace(md5sum, "").getBytes()));
             // setting the new cookie
-            httpResponse.setHeader("Cookie", "settings=" + s + "," + md5sum);
+            httpResponse.setHeader("Cookie", sanitizeHeaderValue("settings=" + s + "," + md5sum));
             return;
           }
         }
@@ -317,8 +336,8 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+    httpResponse.setHeader("Location", sanitizeHeaderValue(String.format("%s/customers/%s",
+                           request.getContextPath(), customer1.getId())));
 
     // response is served as HTML by default: HTML-encode attacker-controlled fields (e.g. phoneNumber)
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
@@ -364,8 +383,8 @@ public class CustomerController {
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+		httpResponse.setHeader("Location", sanitizeHeaderValue(
+				String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
 
 		return createdcustomer;
 	}
