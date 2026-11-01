@@ -1,5 +1,6 @@
 package io.shiftleft.controller;
 
+import io.shiftleft.exception.ForbiddenRequestException;
 import io.shiftleft.model.AuthToken;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -12,6 +13,7 @@ import javax.crypto.spec.SecretKeySpec;
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Controller;
 import org.springframework.util.FileCopyUtils;
@@ -56,7 +58,7 @@ public class AdminController {
   }
 
   // helper
-  private boolean isAdmin(String auth)
+  private static boolean isAdmin(String auth)
   {
     try {
       String[] parts = auth.split("\\.", -1);
@@ -73,6 +75,19 @@ public class AdminController {
     } catch (Exception ex) {
       System.out.println(" cookie cannot be verified: "+ex.getMessage());
       return false;
+    }
+  }
+
+  /**
+   * Authorization guard for endpoints that take a client-supplied object reference (customer or
+   * account id). The project has no per-customer principal, so access is limited to callers whose
+   * server-side session holds a valid, HMAC-signed admin token. Fails closed with HTTP 403.
+   */
+  static void requireAdminSession(HttpServletRequest request) {
+    HttpSession session = request.getSession(false);
+    Object auth = session == null ? null : session.getAttribute("auth");
+    if (auth == null || !isAdmin(auth.toString())) {
+      throw new ForbiddenRequestException();
     }
   }
 
