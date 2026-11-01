@@ -127,6 +127,19 @@ public class CustomerController {
 	}
 
 	/**
+	 * Builds a same-origin, relative Location value for a customer resource from
+	 * the server-configured context path (never from request-derived data) and a
+	 * numeric id. A context path that is not a plain absolute path is ignored.
+	 */
+	private String customerLocation(long customerId) {
+		String base = env.getProperty("server.context-path", "");
+		if (base == null || !base.matches("^(/[A-Za-z0-9._~-]+)*$")) {
+			base = "";
+		}
+		return base + "/customers/" + customerId;
+	}
+
+	/**
 	 * Get customer using id. Returns HTTP 404 if customer not found
 	 *
 	 * @param customerId
@@ -336,8 +349,7 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", sanitizeHeaderValue(String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId())));
+    httpResponse.setHeader("Location", customerLocation(customer1.getId()));
 
     // response is served as HTML by default: HTML-encode attacker-controlled fields (e.g. phoneNumber)
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
@@ -383,8 +395,7 @@ public class CustomerController {
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location", sanitizeHeaderValue(
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
+		httpResponse.setHeader("Location", customerLocation(customer.getId()));
 
 		return createdcustomer;
 	}
