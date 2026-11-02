@@ -330,8 +330,8 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           stripCrLf(request.getContextPath()), stripCrLf(String.valueOf(customer1.getId()))));
+    // Fixed app-relative Location; only the numeric id is interpolated (no request-derived data).
+    httpResponse.setHeader("Location", "/customers/" + customer1.getId());
 
     return HtmlUtils.htmlEscape(customer1.toString());
   }
@@ -376,9 +376,8 @@ public class CustomerController {
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", stripCrLf(request.getContextPath()),
-						stripCrLf(String.valueOf(customer.getId()))));
+		// Fixed app-relative Location; only the numeric id is interpolated (no request-derived data).
+		httpResponse.setHeader("Location", "/customers/" + customer.getId());
 
 		return createdcustomer;
 	}
