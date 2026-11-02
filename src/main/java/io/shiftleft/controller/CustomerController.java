@@ -91,6 +91,14 @@ public class CustomerController {
 		log.info("End Loading SalesForce Properties");
 	}
 
+	/**
+	 * Removes CR/LF characters so a value can safely be placed in an HTTP header
+	 * (prevents response splitting / header injection).
+	 */
+	private static String stripCrLf(String value) {
+		return value == null ? "" : value.replaceAll("[\\r\\n]", "");
+	}
+
 	private void dispatchEventToSalesForce(String event)
 			throws ClientProtocolException, IOException, AuthenticationException {
 		CloseableHttpClient client = HttpClients.createDefault();
@@ -191,6 +199,11 @@ public class CustomerController {
           throw new Exception("cookie is incorrect");
         }
         String md5sum = request.getHeader("Cookie").substring("settings=".length(), 41);
+        // md5sum is echoed back in a response header: only accept a hex digest (rejects CR/LF)
+        if (!md5sum.matches("[0-9a-fA-F]{32}")) {
+          httpResponse.getOutputStream().println("Error");
+          throw new Exception("cookie is incorrect");
+        }
     	ClassPathResource cpr = new ClassPathResource("static");
     	File folder = new File(cpr.getPath());
 		File[] listOfFiles = folder.listFiles();
@@ -318,7 +331,7 @@ public class CustomerController {
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
     httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+                           stripCrLf(request.getContextPath()), stripCrLf(String.valueOf(customer1.getId()))));
 
     return HtmlUtils.htmlEscape(customer1.toString());
   }
@@ -364,7 +377,8 @@ public class CustomerController {
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
 		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+				String.format("%s/customers/%s", stripCrLf(request.getContextPath()),
+						stripCrLf(String.valueOf(customer.getId()))));
 
 		return createdcustomer;
 	}
