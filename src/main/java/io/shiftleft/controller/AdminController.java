@@ -1,5 +1,6 @@
 package io.shiftleft.controller;
 
+import io.shiftleft.exception.UnauthorizedAccessException;
 import io.shiftleft.model.AuthToken;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -12,6 +13,7 @@ import javax.crypto.spec.SecretKeySpec;
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Controller;
 import org.springframework.util.FileCopyUtils;
@@ -60,7 +62,7 @@ public class AdminController {
   }
 
   // helper
-  private boolean isAdmin(String auth)
+  private static boolean isAdmin(String auth)
   {
     try {
       String[] parts = auth.split("\\.", -1);
@@ -79,6 +81,18 @@ public class AdminController {
     } catch (Exception ex) {
       System.out.println(" cookie cannot be verified: "+ex.getMessage());
       return false;
+    }
+  }
+
+  /**
+   * Authorization check for object-level access by id: the request must carry a session whose
+   * "auth" attribute is an HMAC-verified admin token. Fails closed on missing/invalid session.
+   */
+  public static void requireAuthorizedSession(HttpServletRequest request) {
+    HttpSession session = request.getSession(false);
+    Object auth = (session == null) ? null : session.getAttribute("auth");
+    if (auth == null || !isAdmin(auth.toString())) {
+      throw new UnauthorizedAccessException();
     }
   }
 
