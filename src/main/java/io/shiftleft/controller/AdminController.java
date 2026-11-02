@@ -1,13 +1,14 @@
 package io.shiftleft.controller;
 
 import io.shiftleft.model.AuthToken;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.util.Base64;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -27,16 +28,56 @@ import org.springframework.web.bind.annotation.RequestMethod;
 public class AdminController {
   private String fail = "redirect:/";
 
+  private static final String HMAC_ALGORITHM = "HmacSHA256";
+
+  // HMAC key from the environment; falls back to a random per-process key (never hardcoded)
+  private static final byte[] HMAC_KEY = loadHmacKey();
+
+  private static byte[] loadHmacKey() {
+    String configured = System.getenv("AUTH_TOKEN_HMAC_KEY");
+    if (configured != null && !configured.isEmpty()) {
+      return configured.getBytes(StandardCharsets.UTF_8);
+    }
+    byte[] random = new byte[32];
+    new SecureRandom().nextBytes(random);
+    return random;
+  }
+
+  private static byte[] sign(byte[] payload) throws GeneralSecurityException {
+    Mac mac = Mac.getInstance(HMAC_ALGORITHM);
+    mac.init(new SecretKeySpec(HMAC_KEY, HMAC_ALGORITHM));
+    return mac.doFinal(payload);
+  }
+
+  /**
+   * Serialize the token as base64url(role) + "." + base64url(HMAC-SHA256(role)).
+   * No Java native serialization is used for cookie data.
+   */
+  private static String createCookieValue(AuthToken token) throws GeneralSecurityException {
+    byte[] payload = Integer.toString(token.getRole()).getBytes(StandardCharsets.UTF_8);
+    Base64.Encoder enc = Base64.getUrlEncoder().withoutPadding();
+    return enc.encodeToString(payload) + "." + enc.encodeToString(sign(payload));
+  }
+
   // helper
   private boolean isAdmin(String auth)
   {
     try {
-      ByteArrayInputStream bis = new ByteArrayInputStream(Base64.getDecoder().decode(auth));
-      ObjectInputStream objectInputStream = new ObjectInputStream(bis);
-      Object authToken = objectInputStream.readObject();
-      return ((AuthToken) authToken).isAdmin();
+      String[] parts = auth.split("\\.", -1);
+      if (parts.length != 2) {
+        return false;
+      }
+      Base64.Decoder dec = Base64.getUrlDecoder();
+      byte[] payload = dec.decode(parts[0]);
+      byte[] signature = dec.decode(parts[1]);
+      // constant-time verification before trusting any payload content
+      if (!MessageDigest.isEqual(sign(payload), signature)) {
+        return false;
+      }
+      int role = Integer.parseInt(new String(payload, StandardCharsets.UTF_8));
+      return new AuthToken(role).isAdmin();
     } catch (Exception ex) {
-      System.out.println(" cookie cannot be deserialized: "+ex.getMessage());
+      System.out.println(" cookie cannot be verified: "+ex.getMessage());
       return false;
     }
   }
@@ -74,7 +115,7 @@ public class AdminController {
 
   /**
    * Handle login attempt
-   * @param auth cookie value base64 encoded
+   * @param auth cookie value (base64url payload + "." + HMAC signature)
    * @param password hardcoded value
    * @param response -
    * @param request -
@@ -103,10 +144,7 @@ public class AdminController {
       if(pass[1] != null && pass[1].length()>0 && pass[1].equals("shiftleftsecret"))
       {
         AuthToken authToken = new AuthToken(AuthToken.ADMIN);
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        ObjectOutputStream oos = new ObjectOutputStream(bos);
-        oos.writeObject(authToken);
-        String cookieValue = new String(Base64.getEncoder().encode(bos.toByteArray()));
+        String cookieValue = createCookieValue(authToken);
         response.addCookie(new Cookie("auth", cookieValue ));
 
         // cookie is lost after redirection
