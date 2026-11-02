@@ -1,6 +1,7 @@
 package io.shiftleft.controller;
 
 import io.shiftleft.data.DataLoader;
+import io.shiftleft.exception.CustomerNotFoundException;
 import io.shiftleft.model.Account;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -39,14 +40,20 @@ public class AccountController {
     }
 
     @GetMapping("/account/{accountId}")
-    public Account getAccount(@PathVariable long accountId) {
+    public Account getAccount(@PathVariable long accountId, HttpServletRequest request) {
+        AdminController.requireAuthorizedSession(request);
         log.info("Account Data is {}", this.accountRepository.findOne(1l).toString());
         return this.accountRepository.findOne(accountId);
     }
 
     @PostMapping("/account/{accountId}/deposit")
-    public Account depositIntoAccount(@RequestParam double amount, @PathVariable long accountId) {
+    public Account depositIntoAccount(@RequestParam double amount, @PathVariable long accountId,
+            HttpServletRequest request) {
+        AdminController.requireAuthorizedSession(request);
         Account account = this.accountRepository.findOne(accountId);
+        if (account == null) {
+            throw new CustomerNotFoundException();
+        }
         log.info("Account Data is {}", account.toString());
         account.deposit(amount);
         this.accountRepository.save(account);
@@ -54,8 +61,13 @@ public class AccountController {
     }
 
     @PostMapping("/account/{accountId}/withdraw")
-    public Account withdrawFromAccount(@RequestParam double amount, @PathVariable long accountId) {
+    public Account withdrawFromAccount(@RequestParam double amount, @PathVariable long accountId,
+            HttpServletRequest request) {
+        AdminController.requireAuthorizedSession(request);
         Account account = this.accountRepository.findOne(accountId);
+        if (account == null) {
+            throw new CustomerNotFoundException();
+        }
         account.withdraw(amount);
         this.accountRepository.save(account);
         log.info("Account Data is {}", account.toString());
@@ -63,8 +75,13 @@ public class AccountController {
     }
 
     @PostMapping("/account/{accountId}/addInterest")
-    public Account addInterestToAccount(@RequestParam double amount, @PathVariable long accountId) {
+    public Account addInterestToAccount(@RequestParam double amount, @PathVariable long accountId,
+            HttpServletRequest request) {
+        AdminController.requireAuthorizedSession(request);
         Account account = this.accountRepository.findOne(accountId);
+        if (account == null) {
+            throw new CustomerNotFoundException();
+        }
         account.addInterest();
         this.accountRepository.save(account);
         log.info("Account Data is {}", account.toString());

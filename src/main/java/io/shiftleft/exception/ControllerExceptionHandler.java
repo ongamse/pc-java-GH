@@ -21,6 +21,12 @@ public class ControllerExceptionHandler {
 		log.error("Resource not found");
 	}
 
+	@ResponseStatus(HttpStatus.FORBIDDEN) // 403
+	@ExceptionHandler(UnauthorizedAccessException.class)
+	public void handleForbidden(UnauthorizedAccessException ex) {
+		log.warn("Access denied");
+	}
+
 	@ResponseStatus(HttpStatus.BAD_REQUEST) // 400
 	@ExceptionHandler(InvalidCustomerRequestException.class)
 	public void handleBadRequest(InvalidCustomerRequestException ex) {
