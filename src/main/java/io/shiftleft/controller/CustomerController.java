@@ -23,6 +23,7 @@ import java.util.List;
 
 import java.util.Set;
 import javax.annotation.PostConstruct;
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.http.HttpHeaders;
@@ -56,6 +57,7 @@ import org.springframework.web.context.request.WebRequest;
 import com.ulisesbocchio.jasyptspringboot.annotation.EnableEncryptableProperties;
 
 import io.shiftleft.data.DataLoader;
+import io.shiftleft.exception.AccessDeniedException;
 import io.shiftleft.exception.CustomerNotFoundException;
 import io.shiftleft.exception.InvalidCustomerRequestException;
 import io.shiftleft.model.Customer;
@@ -105,13 +107,25 @@ public class CustomerController {
 	}
 
 	/**
+	 * Customer objects addressed by id may only be accessed by the authenticated admin
+	 * principal (signed auth token stored in the session). Fails closed with 403.
+	 */
+	private static void requireAdmin(HttpServletRequest request) {
+		if (!AdminController.isAdminSession(request)) {
+			throw new AccessDeniedException();
+		}
+	}
+
+	/**
 	 * Get customer using id. Returns HTTP 404 if customer not found
 	 *
 	 * @param customerId
 	 * @return retrieved customer
 	 */
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.GET)
-	public Customer getCustomer(@PathVariable("customerId") Long customerId) {
+	public Customer getCustomer(@PathVariable("customerId") Long customerId, HttpServletRequest servletRequest) {
+
+		requireAdmin(servletRequest);
 
 		/* validate customer Id parameter */
       if (null == customerId) {
@@ -371,8 +385,9 @@ public class CustomerController {
 	 */
 	@RequestMapping(value = { "/customers/{customerId}" }, method = { RequestMethod.PUT })
 	public void updateCustomer(@RequestBody Customer customer, @PathVariable("customerId") Long customerId,
-			HttpServletResponse httpResponse) {
+			HttpServletResponse httpResponse, HttpServletRequest servletRequest) {
 
+		requireAdmin(servletRequest);
 		if (!customerRepository.exists(customerId)) {
 			httpResponse.setStatus(HttpStatus.NOT_FOUND.value());
 		} else {
@@ -389,8 +404,10 @@ public class CustomerController {
 	 *            the customer id
 	 */
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.DELETE)
-	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse) {
+	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse,
+			HttpServletRequest servletRequest) {
 
+		requireAdmin(servletRequest);
 		if (customerRepository.exists(customerId)) {
 			customerRepository.delete(customerId);
 		}
