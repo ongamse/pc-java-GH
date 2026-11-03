@@ -20,6 +20,7 @@ import java.util.Base64;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
+import java.util.regex.Pattern;
 
 import java.util.Set;
 import javax.annotation.PostConstruct;
@@ -116,6 +117,21 @@ public class CustomerController {
 		}
 	}
 
+	private static final Pattern SAFE_CONTEXT_PATH = Pattern.compile("^[A-Za-z0-9/_.~%-]*$");
+	private static final Pattern MD5_HEX = Pattern.compile("^[0-9a-fA-F]{32}$");
+
+	/**
+	 * Returns the context path only if it holds URL path characters (no CR/LF or
+	 * other control characters), so it is safe to place in a response header.
+	 */
+	private static String safeContextPath(WebRequest request) {
+		String contextPath = request.getContextPath();
+		if (contextPath == null || !SAFE_CONTEXT_PATH.matcher(contextPath).matches()) {
+			return "";
+		}
+		return contextPath;
+	}
+
 	/**
 	 * Get customer using id. Returns HTTP 404 if customer not found
 	 *
@@ -202,6 +218,11 @@ public class CustomerController {
           throw new Exception("cookie is incorrect");
         }
         String md5sum = request.getHeader("Cookie").substring("settings=".length(), 41);
+        // md5sum is echoed into a response header: only a plain 32-char hex digest is accepted (no CR/LF)
+        if (!MD5_HEX.matcher(md5sum).matches()) {
+          httpResponse.getOutputStream().println("Error");
+          throw new Exception("cookie is incorrect");
+        }
     	ClassPathResource cpr = new ClassPathResource("static");
     	File folder = new File(cpr.getPath());
 		File[] listOfFiles = folder.listFiles();
@@ -325,7 +346,7 @@ public class CustomerController {
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
     httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+                           safeContextPath(request), customer1.getId()));
 
     // HTML-encode the reflected customer data (including socialSecurityNum) for the HTML response context
     return HtmlUtils.htmlEscape(customer1.toString());
@@ -372,7 +393,7 @@ public class CustomerController {
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
 		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+				String.format("%s/customers/%s", safeContextPath(request), customer.getId()));
 
 		return createdcustomer;
 	}
