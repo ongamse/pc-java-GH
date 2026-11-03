@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -19,9 +20,11 @@ import java.util.Base64;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
+import java.util.regex.Pattern;
 
 import java.util.Set;
 import javax.annotation.PostConstruct;
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.http.HttpHeaders;
@@ -55,6 +58,7 @@ import org.springframework.web.context.request.WebRequest;
 import com.ulisesbocchio.jasyptspringboot.annotation.EnableEncryptableProperties;
 
 import io.shiftleft.data.DataLoader;
+import io.shiftleft.exception.AccessDeniedException;
 import io.shiftleft.exception.CustomerNotFoundException;
 import io.shiftleft.exception.InvalidCustomerRequestException;
 import io.shiftleft.model.Customer;
@@ -104,13 +108,43 @@ public class CustomerController {
 	}
 
 	/**
+	 * Customer objects addressed by id may only be accessed by the authenticated admin
+	 * principal (signed auth token stored in the session). Fails closed with 403.
+	 */
+	private static void requireAdmin(HttpServletRequest request) {
+		if (!AdminController.isAdminSession(request)) {
+			throw new AccessDeniedException();
+		}
+	}
+
+	// Empty, or one or more "/segment" parts. Every segment is non-empty, so the value can never
+	// start with "//" (protocol-relative, off-site) and contains no backslash or scheme separator.
+	private static final Pattern SAFE_CONTEXT_PATH = Pattern.compile("^(/[A-Za-z0-9_~%-][A-Za-z0-9_.~%-]*)*$");
+	private static final Pattern MD5_HEX = Pattern.compile("^[0-9a-fA-F]{32}$");
+
+	/**
+	 * Returns the context path only if it is a plain same-origin path (no CR/LF or other
+	 * control characters, no "//" or backslash, no leading dot segment), so it is safe to
+	 * place in a Location header without allowing an off-site redirect. Otherwise returns "".
+	 */
+	private static String safeContextPath(WebRequest request) {
+		String contextPath = request.getContextPath();
+		if (contextPath == null || !SAFE_CONTEXT_PATH.matcher(contextPath).matches()) {
+			return "";
+		}
+		return contextPath;
+	}
+
+	/**
 	 * Get customer using id. Returns HTTP 404 if customer not found
 	 *
 	 * @param customerId
 	 * @return retrieved customer
 	 */
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.GET)
-	public Customer getCustomer(@PathVariable("customerId") Long customerId) {
+	public Customer getCustomer(@PathVariable("customerId") Long customerId, HttpServletRequest servletRequest) {
+
+		requireAdmin(servletRequest);
 
 		/* validate customer Id parameter */
       if (null == customerId) {
@@ -187,6 +221,11 @@ public class CustomerController {
           throw new Exception("cookie is incorrect");
         }
         String md5sum = request.getHeader("Cookie").substring("settings=".length(), 41);
+        // md5sum is echoed into a response header: only a plain 32-char hex digest is accepted (no CR/LF)
+        if (!MD5_HEX.matcher(md5sum).matches()) {
+          httpResponse.getOutputStream().println("Error");
+          throw new Exception("cookie is incorrect");
+        }
     	ClassPathResource cpr = new ClassPathResource("static");
     	File folder = new File(cpr.getPath());
 		File[] listOfFiles = folder.listFiles();
@@ -238,7 +277,9 @@ public class CustomerController {
     // Check md5sum
     String cookieMD5sum = cookie[1];
     String calcMD5Sum = DigestUtils.md5Hex(base64txt);
-	if(!cookieMD5sum.equals(calcMD5Sum))
+	if(!MessageDigest.isEqual(
+        cookieMD5sum.getBytes(StandardCharsets.UTF_8),
+        calcMD5Sum.getBytes(StandardCharsets.UTF_8)))
     {
       httpResponse.getOutputStream().println("Wrong md5");
       throw new Exception("Invalid MD5");
@@ -248,7 +289,14 @@ public class CustomerController {
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
+	  Path baseDir = Paths.get(cpr.getPath()).toAbsolutePath().normalize();
+	  Path target = baseDir.resolve(settings[0]).normalize();
+	  // reject any filename that escapes the settings base directory (path traversal)
+	  if (!target.startsWith(baseDir) || target.equals(baseDir)) {
+	    httpResponse.getOutputStream().println("Invalid filename");
+	    throw new Exception("Invalid settings filename");
+	  }
+	  File file = target.toFile();
     if(!file.exists()) {
       file.getParentFile().mkdirs();
     }
@@ -301,9 +349,10 @@ public class CustomerController {
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
     httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+                           safeContextPath(request), customer1.getId()));
 
-    return customer1.toString().toLowerCase().replace("script","");
+    // HTML-encode the reflected customer data (including socialSecurityNum) for the HTML response context
+    return HtmlUtils.htmlEscape(customer1.toString());
   }
 
 	/**
@@ -347,7 +396,7 @@ public class CustomerController {
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
 		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+				String.format("%s/customers/%s", safeContextPath(request), customer.getId()));
 
 		return createdcustomer;
 	}
@@ -360,8 +409,9 @@ public class CustomerController {
 	 */
 	@RequestMapping(value = { "/customers/{customerId}" }, method = { RequestMethod.PUT })
 	public void updateCustomer(@RequestBody Customer customer, @PathVariable("customerId") Long customerId,
-			HttpServletResponse httpResponse) {
+			HttpServletResponse httpResponse, HttpServletRequest servletRequest) {
 
+		requireAdmin(servletRequest);
 		if (!customerRepository.exists(customerId)) {
 			httpResponse.setStatus(HttpStatus.NOT_FOUND.value());
 		} else {
@@ -378,8 +428,10 @@ public class CustomerController {
 	 *            the customer id
 	 */
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.DELETE)
-	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse) {
+	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse,
+			HttpServletRequest servletRequest) {
 
+		requireAdmin(servletRequest);
 		if (customerRepository.exists(customerId)) {
 			customerRepository.delete(customerId);
 		}
