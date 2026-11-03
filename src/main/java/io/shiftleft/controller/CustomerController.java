@@ -117,12 +117,15 @@ public class CustomerController {
 		}
 	}
 
-	private static final Pattern SAFE_CONTEXT_PATH = Pattern.compile("^[A-Za-z0-9/_.~%-]*$");
+	// Empty, or one or more "/segment" parts. Every segment is non-empty, so the value can never
+	// start with "//" (protocol-relative, off-site) and contains no backslash or scheme separator.
+	private static final Pattern SAFE_CONTEXT_PATH = Pattern.compile("^(/[A-Za-z0-9_~%-][A-Za-z0-9_.~%-]*)*$");
 	private static final Pattern MD5_HEX = Pattern.compile("^[0-9a-fA-F]{32}$");
 
 	/**
-	 * Returns the context path only if it holds URL path characters (no CR/LF or
-	 * other control characters), so it is safe to place in a response header.
+	 * Returns the context path only if it is a plain same-origin path (no CR/LF or other
+	 * control characters, no "//" or backslash, no leading dot segment), so it is safe to
+	 * place in a Location header without allowing an off-site redirect. Otherwise returns "".
 	 */
 	private static String safeContextPath(WebRequest request) {
 		String contextPath = request.getContextPath();
