@@ -84,9 +84,14 @@ public class DataLoader implements CommandLineRunner {
   @Override
   public void run(String... arg0) throws Exception {
 
+    // Master password is supplied via the JASYPT_ENCRYPTOR_PASSWORD environment variable
+    // (or command line); never log its value.
     SimpleCommandLinePropertySource ps = new SimpleCommandLinePropertySource(arg0);
     String encryptor = (String) ps.getProperty("jasypt.encryptor.password");
-    log.info("JASP Master Creds is {}", encryptor);
+    if (encryptor == null) {
+      encryptor = env.getProperty("jasypt.encryptor.password");
+    }
+    log.info("JASP Master Creds configured: {}", encryptor != null && !encryptor.isEmpty());
 
     connectToMySQL();
 

@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -104,6 +105,22 @@ public class CustomerController {
 	}
 
 	/**
+	 * Returns the request context path only if it consists solely of safe URL
+	 * path characters (no CR/LF or other control characters) and is a
+	 * same-origin absolute path (each segment non-empty and not starting with
+	 * '.', so it can never begin with "//" and become a protocol-relative
+	 * redirect to another host); otherwise an empty string, so it can be placed
+	 * in a response header.
+	 */
+	private static String safeContextPath(WebRequest request) {
+		String contextPath = request.getContextPath();
+		if (contextPath != null && contextPath.matches("(/[A-Za-z0-9_~-][A-Za-z0-9_.~-]*)*")) {
+			return contextPath;
+		}
+		return "";
+	}
+
+	/**
 	 * Get customer using id. Returns HTTP 404 if customer not found
 	 *
 	 * @param customerId
@@ -187,6 +204,11 @@ public class CustomerController {
           throw new Exception("cookie is incorrect");
         }
         String md5sum = request.getHeader("Cookie").substring("settings=".length(), 41);
+        // md5sum is echoed into a response header: only a 32-char hex digest is acceptable (rejects CR/LF)
+        if (!md5sum.matches("[0-9a-fA-F]{32}")) {
+          httpResponse.getOutputStream().println("Error");
+          throw new Exception("cookie is incorrect");
+        }
     	ClassPathResource cpr = new ClassPathResource("static");
     	File folder = new File(cpr.getPath());
 		File[] listOfFiles = folder.listFiles();
@@ -238,7 +260,8 @@ public class CustomerController {
     // Check md5sum
     String cookieMD5sum = cookie[1];
     String calcMD5Sum = DigestUtils.md5Hex(base64txt);
-	if(!cookieMD5sum.equals(calcMD5Sum))
+	// constant-time comparison to avoid timing side channel
+	if(!MessageDigest.isEqual(cookieMD5sum.getBytes(StandardCharsets.UTF_8), calcMD5Sum.getBytes(StandardCharsets.UTF_8)))
     {
       httpResponse.getOutputStream().println("Wrong md5");
       throw new Exception("Invalid MD5");
@@ -248,7 +271,14 @@ public class CustomerController {
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
+    // Confine the target file to the settings base directory (reject path traversal)
+    Path baseDir = Paths.get(cpr.getPath()).toAbsolutePath().normalize();
+    Path target = baseDir.resolve(settings[0]).normalize();
+    if(settings[0].isEmpty() || settings[0].indexOf('\0') >= 0 || !target.startsWith(baseDir) || target.equals(baseDir)) {
+      httpResponse.getOutputStream().println("Invalid settings file name");
+      throw new Exception("invalid settings file name");
+    }
+    File file = target.toFile();
     if(!file.exists()) {
       file.getParentFile().mkdirs();
     }
@@ -300,10 +330,11 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+    httpResponse.setHeader("Location", String.format("%s/customers/%d",
+                           safeContextPath(request), customer1.getId()));
 
-    return customer1.toString().toLowerCase().replace("script","");
+    // HTML-encode attacker-controlled fields (e.g. customerId) echoed back in the response body
+    return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
   }
 
 	/**
@@ -347,7 +378,7 @@ public class CustomerController {
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
 		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+				String.format("%s/customers/%d", safeContextPath(request), createdcustomer.getId()));
 
 		return createdcustomer;
 	}
