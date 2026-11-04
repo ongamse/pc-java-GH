@@ -105,6 +105,19 @@ public class CustomerController {
 	}
 
 	/**
+	 * Returns the request context path only if it consists solely of safe URL
+	 * path characters (no CR/LF or other control characters); otherwise an
+	 * empty string, so it can be placed in a response header.
+	 */
+	private static String safeContextPath(WebRequest request) {
+		String contextPath = request.getContextPath();
+		if (contextPath != null && contextPath.matches("[A-Za-z0-9/_.~-]*")) {
+			return contextPath;
+		}
+		return "";
+	}
+
+	/**
 	 * Get customer using id. Returns HTTP 404 if customer not found
 	 *
 	 * @param customerId
@@ -188,6 +201,11 @@ public class CustomerController {
           throw new Exception("cookie is incorrect");
         }
         String md5sum = request.getHeader("Cookie").substring("settings=".length(), 41);
+        // md5sum is echoed into a response header: only a 32-char hex digest is acceptable (rejects CR/LF)
+        if (!md5sum.matches("[0-9a-fA-F]{32}")) {
+          httpResponse.getOutputStream().println("Error");
+          throw new Exception("cookie is incorrect");
+        }
     	ClassPathResource cpr = new ClassPathResource("static");
     	File folder = new File(cpr.getPath());
 		File[] listOfFiles = folder.listFiles();
@@ -309,8 +327,8 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+    httpResponse.setHeader("Location", String.format("%s/customers/%d",
+                           safeContextPath(request), customer1.getId()));
 
     // HTML-encode attacker-controlled fields (e.g. customerId) echoed back in the response body
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
@@ -357,7 +375,7 @@ public class CustomerController {
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
 		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+				String.format("%s/customers/%d", safeContextPath(request), createdcustomer.getId()));
 
 		return createdcustomer;
 	}
