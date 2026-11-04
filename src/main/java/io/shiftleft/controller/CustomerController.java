@@ -106,12 +106,15 @@ public class CustomerController {
 
 	/**
 	 * Returns the request context path only if it consists solely of safe URL
-	 * path characters (no CR/LF or other control characters); otherwise an
-	 * empty string, so it can be placed in a response header.
+	 * path characters (no CR/LF or other control characters) and is a
+	 * same-origin absolute path (each segment non-empty and not starting with
+	 * '.', so it can never begin with "//" and become a protocol-relative
+	 * redirect to another host); otherwise an empty string, so it can be placed
+	 * in a response header.
 	 */
 	private static String safeContextPath(WebRequest request) {
 		String contextPath = request.getContextPath();
-		if (contextPath != null && contextPath.matches("[A-Za-z0-9/_.~-]*")) {
+		if (contextPath != null && contextPath.matches("(/[A-Za-z0-9_~-][A-Za-z0-9_.~-]*)*")) {
 			return contextPath;
 		}
 		return "";
