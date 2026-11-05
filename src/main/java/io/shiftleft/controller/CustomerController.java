@@ -24,6 +24,7 @@ import java.util.List;
 
 import java.util.Set;
 import javax.annotation.PostConstruct;
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.http.HttpHeaders;
@@ -78,6 +79,9 @@ public class CustomerController {
 	private CustomerRepository customerRepository;
 
 	@Autowired
+	private SessionAuthorization sessionAuthorization;
+
+	@Autowired
 	Environment env;
 	
 	private static Logger log = LoggerFactory.getLogger(CustomerController.class);
@@ -112,7 +116,9 @@ public class CustomerController {
 	 * @return retrieved customer
 	 */
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.GET)
-	public Customer getCustomer(@PathVariable("customerId") Long customerId) {
+	public Customer getCustomer(@PathVariable("customerId") Long customerId, HttpServletRequest httpRequest) {
+
+		sessionAuthorization.requireAdmin(httpRequest);
 
 		/* validate customer Id parameter */
       if (null == customerId) {
@@ -305,7 +311,10 @@ public class CustomerController {
                       @RequestParam String tin,
                       @RequestParam String phoneNumber,
                       HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
+                     WebRequest request,
+                     HttpServletRequest httpRequest) throws IOException{
+
+    sessionAuthorization.requireAdmin(httpRequest);
 
     // empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
@@ -358,7 +367,9 @@ public class CustomerController {
 	 */
 	@RequestMapping(value = { "/customers" }, method = { RequestMethod.POST })
 	public Customer createCustomer(@RequestParam Customer customer, HttpServletResponse httpResponse,
-								   WebRequest request) {
+								   WebRequest request, HttpServletRequest httpRequest) {
+
+		sessionAuthorization.requireAdmin(httpRequest);
 
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
@@ -377,7 +388,9 @@ public class CustomerController {
 	 */
 	@RequestMapping(value = { "/customers/{customerId}" }, method = { RequestMethod.PUT })
 	public void updateCustomer(@RequestBody Customer customer, @PathVariable("customerId") Long customerId,
-			HttpServletResponse httpResponse) {
+			HttpServletResponse httpResponse, HttpServletRequest httpRequest) {
+
+		sessionAuthorization.requireAdmin(httpRequest);
 
 		if (!customerRepository.exists(customerId)) {
 			httpResponse.setStatus(HttpStatus.NOT_FOUND.value());
