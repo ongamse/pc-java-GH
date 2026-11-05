@@ -95,6 +95,25 @@ public class CustomerController {
 		log.info("End Loading SalesForce Properties");
 	}
 
+	/**
+	 * Guards against HTTP response splitting (CWE-113): fails closed if the value
+	 * is null or contains CR, LF or any other ISO control character.
+	 *
+	 * @param value candidate HTTP header value
+	 * @return the same value when it is safe to place in a header
+	 */
+	private static String requireSafeHeaderValue(String value) {
+		if (value == null) {
+			throw new InvalidCustomerRequestException();
+		}
+		for (int i = 0; i < value.length(); i++) {
+			if (Character.isISOControl(value.charAt(i))) {
+				throw new InvalidCustomerRequestException();
+			}
+		}
+		return value;
+	}
+
 	private void dispatchEventToSalesForce(String event)
 			throws ClientProtocolException, IOException, AuthenticationException {
 		CloseableHttpClient client = HttpClients.createDefault();
@@ -210,7 +229,7 @@ public class CustomerController {
             // encode the file settings, md5sum is removed
             String s = new String(Base64.getEncoder().encode(filecontent.replace(md5sum, "").getBytes()));
             // setting the new cookie
-            httpResponse.setHeader("Cookie", "settings=" + s + "," + md5sum);
+            httpResponse.setHeader("Cookie", requireSafeHeaderValue("settings=" + s + "," + md5sum));
             return;
           }
         }
@@ -316,6 +335,9 @@ public class CustomerController {
 
     sessionAuthorization.requireAdmin(httpRequest);
 
+    // customerId ends up in the Location header: reject CR/LF/control characters before persisting anything
+    requireSafeHeaderValue(customerId);
+
     // empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
     //dateofbirth example -> "1982-01-10"
@@ -326,8 +348,8 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+    httpResponse.setHeader("Location", requireSafeHeaderValue(String.format("%s/customers/%s",
+                           request.getContextPath(), customer1.getId())));
 
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
   }
@@ -374,8 +396,8 @@ public class CustomerController {
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+		httpResponse.setHeader("Location", requireSafeHeaderValue(
+				String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
 
 		return createdcustomer;
 	}
