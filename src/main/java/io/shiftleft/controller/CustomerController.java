@@ -114,6 +114,24 @@ public class CustomerController {
 		return value;
 	}
 
+	/**
+	 * Guards against open redirects (CWE-601): only same-origin, absolute-path
+	 * references ("/foo/bar") are accepted. Absolute URLs, scheme-relative
+	 * ("//host") references, backslashes and control characters are rejected
+	 * (fail closed).
+	 *
+	 * @param location candidate redirect target
+	 * @return the same value when it is a safe same-origin path
+	 */
+	private static String requireSameOriginPath(String location) {
+		requireSafeHeaderValue(location);
+		if (location.isEmpty() || location.charAt(0) != '/' || location.startsWith("//")
+				|| location.indexOf('\\') >= 0) {
+			throw new InvalidCustomerRequestException();
+		}
+		return location;
+	}
+
 	private void dispatchEventToSalesForce(String event)
 			throws ClientProtocolException, IOException, AuthenticationException {
 		CloseableHttpClient client = HttpClients.createDefault();
@@ -348,7 +366,7 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", requireSafeHeaderValue(String.format("%s/customers/%s",
+    httpResponse.setHeader("Location", requireSameOriginPath(String.format("%s/customers/%s",
                            request.getContextPath(), customer1.getId())));
 
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
