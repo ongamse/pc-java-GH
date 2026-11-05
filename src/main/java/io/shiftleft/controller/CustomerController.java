@@ -11,6 +11,8 @@ import java.io.IOException;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -22,6 +24,7 @@ import java.util.List;
 
 import java.util.Set;
 import javax.annotation.PostConstruct;
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.http.HttpHeaders;
@@ -76,6 +79,9 @@ public class CustomerController {
 	private CustomerRepository customerRepository;
 
 	@Autowired
+	private SessionAuthorization sessionAuthorization;
+
+	@Autowired
 	Environment env;
 	
 	private static Logger log = LoggerFactory.getLogger(CustomerController.class);
@@ -87,6 +93,43 @@ public class CustomerController {
 		log.info("UserName is {}", env.getProperty("sfdc.username"));
 		log.info("Password is {}", env.getProperty("sfdc.password"));
 		log.info("End Loading SalesForce Properties");
+	}
+
+	/**
+	 * Guards against HTTP response splitting (CWE-113): fails closed if the value
+	 * is null or contains CR, LF or any other ISO control character.
+	 *
+	 * @param value candidate HTTP header value
+	 * @return the same value when it is safe to place in a header
+	 */
+	private static String requireSafeHeaderValue(String value) {
+		if (value == null) {
+			throw new InvalidCustomerRequestException();
+		}
+		for (int i = 0; i < value.length(); i++) {
+			if (Character.isISOControl(value.charAt(i))) {
+				throw new InvalidCustomerRequestException();
+			}
+		}
+		return value;
+	}
+
+	/**
+	 * Guards against open redirects (CWE-601): only same-origin, absolute-path
+	 * references ("/foo/bar") are accepted. Absolute URLs, scheme-relative
+	 * ("//host") references, backslashes and control characters are rejected
+	 * (fail closed).
+	 *
+	 * @param location candidate redirect target
+	 * @return the same value when it is a safe same-origin path
+	 */
+	private static String requireSameOriginPath(String location) {
+		requireSafeHeaderValue(location);
+		if (location.isEmpty() || location.charAt(0) != '/' || location.startsWith("//")
+				|| location.indexOf('\\') >= 0) {
+			throw new InvalidCustomerRequestException();
+		}
+		return location;
 	}
 
 	private void dispatchEventToSalesForce(String event)
@@ -110,7 +153,9 @@ public class CustomerController {
 	 * @return retrieved customer
 	 */
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.GET)
-	public Customer getCustomer(@PathVariable("customerId") Long customerId) {
+	public Customer getCustomer(@PathVariable("customerId") Long customerId, HttpServletRequest httpRequest) {
+
+		sessionAuthorization.requireAdmin(httpRequest);
 
 		/* validate customer Id parameter */
       if (null == customerId) {
@@ -202,7 +247,7 @@ public class CustomerController {
             // encode the file settings, md5sum is removed
             String s = new String(Base64.getEncoder().encode(filecontent.replace(md5sum, "").getBytes()));
             // setting the new cookie
-            httpResponse.setHeader("Cookie", "settings=" + s + "," + md5sum);
+            httpResponse.setHeader("Cookie", requireSafeHeaderValue("settings=" + s + "," + md5sum));
             return;
           }
         }
@@ -238,7 +283,9 @@ public class CustomerController {
     // Check md5sum
     String cookieMD5sum = cookie[1];
     String calcMD5Sum = DigestUtils.md5Hex(base64txt);
-	if(!cookieMD5sum.equals(calcMD5Sum))
+	// constant-time comparison to avoid leaking the checksum through timing differences
+	if(!MessageDigest.isEqual(cookieMD5sum.getBytes(StandardCharsets.UTF_8),
+			calcMD5Sum.getBytes(StandardCharsets.UTF_8)))
     {
       httpResponse.getOutputStream().println("Wrong md5");
       throw new Exception("Invalid MD5");
@@ -248,7 +295,20 @@ public class CustomerController {
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
+    // resolve the requested name against the base dir and make sure it cannot escape it
+    Path baseDir = Paths.get(cpr.getPath()).toAbsolutePath().normalize();
+    Path target;
+    try {
+      target = baseDir.resolve(settings[0]).normalize();
+    } catch (InvalidPathException e) {
+      httpResponse.getOutputStream().println("Invalid file name");
+      throw new Exception("Invalid file name");
+    }
+    if (!target.startsWith(baseDir) || target.equals(baseDir)) {
+      httpResponse.getOutputStream().println("Invalid file name");
+      throw new Exception("Invalid file name");
+    }
+    File file = target.toFile();
     if(!file.exists()) {
       file.getParentFile().mkdirs();
     }
@@ -288,7 +348,13 @@ public class CustomerController {
                       @RequestParam String tin,
                       @RequestParam String phoneNumber,
                       HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
+                     WebRequest request,
+                     HttpServletRequest httpRequest) throws IOException{
+
+    sessionAuthorization.requireAdmin(httpRequest);
+
+    // customerId ends up in the Location header: reject CR/LF/control characters before persisting anything
+    requireSafeHeaderValue(customerId);
 
     // empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
@@ -300,10 +366,10 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+    httpResponse.setHeader("Location", requireSameOriginPath(String.format("%s/customers/%s",
+                           request.getContextPath(), customer1.getId())));
 
-    return customer1.toString().toLowerCase().replace("script","");
+    return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
   }
 
 	/**
@@ -341,13 +407,15 @@ public class CustomerController {
 	 */
 	@RequestMapping(value = { "/customers" }, method = { RequestMethod.POST })
 	public Customer createCustomer(@RequestParam Customer customer, HttpServletResponse httpResponse,
-								   WebRequest request) {
+								   WebRequest request, HttpServletRequest httpRequest) {
+
+		sessionAuthorization.requireAdmin(httpRequest);
 
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+		httpResponse.setHeader("Location", requireSafeHeaderValue(
+				String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
 
 		return createdcustomer;
 	}
@@ -360,7 +428,9 @@ public class CustomerController {
 	 */
 	@RequestMapping(value = { "/customers/{customerId}" }, method = { RequestMethod.PUT })
 	public void updateCustomer(@RequestBody Customer customer, @PathVariable("customerId") Long customerId,
-			HttpServletResponse httpResponse) {
+			HttpServletResponse httpResponse, HttpServletRequest httpRequest) {
+
+		sessionAuthorization.requireAdmin(httpRequest);
 
 		if (!customerRepository.exists(customerId)) {
 			httpResponse.setStatus(HttpStatus.NOT_FOUND.value());

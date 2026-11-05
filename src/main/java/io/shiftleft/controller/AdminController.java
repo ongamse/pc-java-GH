@@ -4,8 +4,11 @@ import io.shiftleft.model.AuthToken;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InvalidClassException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.io.ObjectStreamClass;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import javax.servlet.http.Cookie;
@@ -27,14 +30,36 @@ import org.springframework.web.bind.annotation.RequestMethod;
 public class AdminController {
   private String fail = "redirect:/";
 
+  /**
+   * ObjectInputStream that only resolves the AuthToken class, rejecting any other
+   * class found in untrusted serialized data.
+   */
+  private static final class AuthTokenInputStream extends ObjectInputStream {
+    AuthTokenInputStream(InputStream in) throws IOException {
+      super(in);
+    }
+
+    @Override
+    protected Class<?> resolveClass(ObjectStreamClass desc) throws IOException, ClassNotFoundException {
+      if (!AuthToken.class.getName().equals(desc.getName())) {
+        throw new InvalidClassException(desc.getName(), "Unauthorized deserialization attempt");
+      }
+      return super.resolveClass(desc);
+    }
+  }
+
   // helper
   private boolean isAdmin(String auth)
   {
     try {
       ByteArrayInputStream bis = new ByteArrayInputStream(Base64.getDecoder().decode(auth));
-      ObjectInputStream objectInputStream = new ObjectInputStream(bis);
-      Object authToken = objectInputStream.readObject();
-      return ((AuthToken) authToken).isAdmin();
+      try (ObjectInputStream objectInputStream = new AuthTokenInputStream(bis)) {
+        Object authToken = objectInputStream.readObject();
+        if (!(authToken instanceof AuthToken)) {
+          return false;
+        }
+        return ((AuthToken) authToken).isAdmin();
+      }
     } catch (Exception ex) {
       System.out.println(" cookie cannot be deserialized: "+ex.getMessage());
       return false;
