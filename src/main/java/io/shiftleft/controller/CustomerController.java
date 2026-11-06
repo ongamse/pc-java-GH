@@ -114,6 +114,20 @@ public class CustomerController {
 	}
 
 	/**
+	 * Builds a same-origin, relative Location value for a customer resource from
+	 * server-side configuration only (never from request-supplied data), so the
+	 * redirect destination cannot be steered to an arbitrary host.
+	 */
+	private String customerLocation(long customerId) {
+		String contextPath = env.getProperty("server.context-path", "");
+		// accept only a plain absolute path such as "/app"; reject "//host", schemes, etc.
+		if (contextPath == null || !contextPath.matches("^(/[A-Za-z0-9._~-]+)*$")) {
+			contextPath = "";
+		}
+		return stripCrLf(String.format("%s/customers/%d", contextPath, customerId));
+	}
+
+	/**
 	 * Get customer using id. Returns HTTP 404 if customer not found
 	 *
 	 * @param customerId
@@ -325,8 +339,7 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", stripCrLf(String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId())));
+    httpResponse.setHeader("Location", customerLocation(customer1.getId()));
 
     // contextual HTML encoding of the reflected, attacker-controlled customer data
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase());
@@ -372,8 +385,7 @@ public class CustomerController {
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				stripCrLf(String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
+		httpResponse.setHeader("Location", customerLocation(createdcustomer.getId()));
 
 		return createdcustomer;
 	}
