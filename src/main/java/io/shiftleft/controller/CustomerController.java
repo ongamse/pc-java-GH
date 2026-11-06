@@ -106,6 +106,14 @@ public class CustomerController {
 	}
 
 	/**
+	 * Removes CR/LF characters from a value destined for an HTTP response header
+	 * (prevents header injection / response splitting).
+	 */
+	private static String stripCrLf(String value) {
+		return value == null ? null : value.replaceAll("[\\r\\n]", "");
+	}
+
+	/**
 	 * Get customer using id. Returns HTTP 404 if customer not found
 	 *
 	 * @param customerId
@@ -204,7 +212,7 @@ public class CustomerController {
             // encode the file settings, md5sum is removed
             String s = new String(Base64.getEncoder().encode(filecontent.replace(md5sum, "").getBytes()));
             // setting the new cookie
-            httpResponse.setHeader("Cookie", "settings=" + s + "," + md5sum);
+            httpResponse.setHeader("Cookie", stripCrLf("settings=" + s + "," + md5sum));
             return;
           }
         }
@@ -317,8 +325,8 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+    httpResponse.setHeader("Location", stripCrLf(String.format("%s/customers/%s",
+                           request.getContextPath(), customer1.getId())));
 
     // contextual HTML encoding of the reflected, attacker-controlled customer data
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase());
@@ -365,7 +373,7 @@ public class CustomerController {
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
 		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+				stripCrLf(String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
 
 		return createdcustomer;
 	}
