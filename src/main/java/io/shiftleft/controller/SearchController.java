@@ -16,6 +16,7 @@ import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.util.HtmlUtils;
 
 
 /**
@@ -34,7 +35,8 @@ public class SearchController {
     } catch (Exception ex) {
       System.out.println(ex.getMessage());
     }
-    return message.toString();
+    // HTML-encode the evaluated, attacker-influenced result before it is returned
+    return HtmlUtils.htmlEscape(String.valueOf(message));
   }
 
   /**
