@@ -11,6 +11,8 @@ import java.io.IOException;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -248,7 +250,20 @@ public class CustomerController {
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
+	  // canonicalize and confine the target to the base directory (prevents path traversal)
+    Path baseDir = Paths.get(cpr.getPath()).toAbsolutePath().normalize();
+    Path target;
+    try {
+      target = baseDir.resolve(settings[0]).normalize();
+    } catch (InvalidPathException e) {
+      httpResponse.getOutputStream().println("Invalid file name");
+      throw new Exception("Invalid settings file name");
+    }
+    if (settings[0].isEmpty() || !target.startsWith(baseDir) || target.equals(baseDir)) {
+      httpResponse.getOutputStream().println("Invalid file name");
+      throw new Exception("Invalid settings file name");
+    }
+    File file = target.toFile();
     if(!file.exists()) {
       file.getParentFile().mkdirs();
     }
