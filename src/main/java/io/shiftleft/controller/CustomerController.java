@@ -135,6 +135,34 @@ public class CustomerController {
 	}
 
 	/**
+	 * Returns true only for relative, same-origin paths: a single leading '/',
+	 * not '//' or '/\', no backslashes and no control characters (so no scheme
+	 * or host can be smuggled in).
+	 */
+	private static boolean isSafeRelativePath(String path) {
+		if (path == null || path.isEmpty() || path.charAt(0) != '/') {
+			return false;
+		}
+		if (path.length() > 1 && (path.charAt(1) == '/' || path.charAt(1) == '\\')) {
+			return false;
+		}
+		return path.indexOf('\\') < 0 && path.equals(sanitizeHeaderValue(path));
+	}
+
+	/**
+	 * Builds the Location header value for a created customer. The request
+	 * derived context path is validated as a same-origin relative path;
+	 * otherwise the redirect falls back to the safe default "/customers/{id}".
+	 */
+	private static String customerLocation(String contextPath, Object customerId) {
+		String path = (contextPath == null ? "" : contextPath) + "/customers/" + customerId;
+		if (isSafeRelativePath(path)) {
+			return path;
+		}
+		return sanitizeHeaderValue("/customers/" + customerId);
+	}
+
+	/**
 	 * Get customer using id. Returns HTTP 404 if customer not found
 	 *
 	 * @param customerId
@@ -339,8 +367,7 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", sanitizeHeaderValue(String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId())));
+    httpResponse.setHeader("Location", customerLocation(request.getContextPath(), customer1.getId()));
 
     return HtmlUtils.htmlEscape(customer1.toString());
   }
@@ -385,8 +412,7 @@ public class CustomerController {
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				sanitizeHeaderValue(String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
+		httpResponse.setHeader("Location", customerLocation(request.getContextPath(), customer.getId()));
 
 		return createdcustomer;
 	}
