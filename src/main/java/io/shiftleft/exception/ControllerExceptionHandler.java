@@ -27,6 +27,12 @@ public class ControllerExceptionHandler {
 		log.error("Invalid Fund Request");
 	}
 
+	@ResponseStatus(HttpStatus.FORBIDDEN) // 403
+	@ExceptionHandler(ForbiddenRequestException.class)
+	public void handleForbidden(ForbiddenRequestException ex) {
+		log.error("Access to resource denied");
+	}
+
 	@ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR) // 500
 	@ExceptionHandler(Exception.class)
 	public void handleGeneralError(Exception ex) {
