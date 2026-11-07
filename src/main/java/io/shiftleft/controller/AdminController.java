@@ -1,13 +1,14 @@
 package io.shiftleft.controller;
 
 import io.shiftleft.model.AuthToken;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.util.Base64;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -27,16 +28,47 @@ import org.springframework.web.bind.annotation.RequestMethod;
 public class AdminController {
   private String fail = "redirect:/";
 
+  // HMAC key for auth tokens: from env AUTH_TOKEN_SECRET, else random per process
+  private static final byte[] TOKEN_KEY = loadTokenKey();
+
+  private static byte[] loadTokenKey() {
+    String configured = System.getenv("AUTH_TOKEN_SECRET");
+    if (configured != null && !configured.isEmpty()) {
+      return configured.getBytes(StandardCharsets.UTF_8);
+    }
+    byte[] key = new byte[32];
+    new SecureRandom().nextBytes(key);
+    return key;
+  }
+
+  private static byte[] sign(String payload) throws GeneralSecurityException {
+    Mac mac = Mac.getInstance("HmacSHA256");
+    mac.init(new SecretKeySpec(TOKEN_KEY, "HmacSHA256"));
+    return mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
+  }
+
+  // token format: role "." base64url(HMAC-SHA256(role)); no Java deserialization of cookie data
+  private static String createToken(AuthToken authToken) throws GeneralSecurityException {
+    String payload = Integer.toString(authToken.getRole());
+    return payload + "." + Base64.getUrlEncoder().withoutPadding().encodeToString(sign(payload));
+  }
+
   // helper
   private boolean isAdmin(String auth)
   {
     try {
-      ByteArrayInputStream bis = new ByteArrayInputStream(Base64.getDecoder().decode(auth));
-      ObjectInputStream objectInputStream = new ObjectInputStream(bis);
-      Object authToken = objectInputStream.readObject();
-      return ((AuthToken) authToken).isAdmin();
+      int sep = auth.indexOf('.');
+      if (sep <= 0) {
+        return false;
+      }
+      String payload = auth.substring(0, sep);
+      byte[] provided = Base64.getUrlDecoder().decode(auth.substring(sep + 1));
+      if (!MessageDigest.isEqual(sign(payload), provided)) {
+        return false;
+      }
+      return new AuthToken(Integer.parseInt(payload)).isAdmin();
     } catch (Exception ex) {
-      System.out.println(" cookie cannot be deserialized: "+ex.getMessage());
+      System.out.println(" cookie cannot be verified: "+ex.getMessage());
       return false;
     }
   }
@@ -103,10 +135,7 @@ public class AdminController {
       if(pass[1] != null && pass[1].length()>0 && pass[1].equals("shiftleftsecret"))
       {
         AuthToken authToken = new AuthToken(AuthToken.ADMIN);
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        ObjectOutputStream oos = new ObjectOutputStream(bos);
-        oos.writeObject(authToken);
-        String cookieValue = new String(Base64.getEncoder().encode(bos.toByteArray()));
+        String cookieValue = createToken(authToken);
         response.addCookie(new Cookie("auth", cookieValue ));
 
         // cookie is lost after redirection
