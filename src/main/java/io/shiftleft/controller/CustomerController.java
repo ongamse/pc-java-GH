@@ -338,8 +338,8 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", requireNoCrlf(String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId())));
+    // fixed relative reference built only from the server-generated numeric id (no request data)
+    httpResponse.setHeader("Location", requireNoCrlf("customers/" + Long.toString(customer1.getId())));
 
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase());
   }
@@ -387,8 +387,9 @@ public class CustomerController {
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
+		// fixed relative reference built only from the persisted numeric id (no request data)
 		httpResponse.setHeader("Location",
-				requireNoCrlf(String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
+				requireNoCrlf("customers/" + Long.toString(createdcustomer.getId())));
 
 		return createdcustomer;
 	}
