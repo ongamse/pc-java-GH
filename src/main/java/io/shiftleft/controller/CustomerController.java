@@ -22,6 +22,7 @@ import java.util.List;
 
 import java.util.Set;
 import javax.annotation.PostConstruct;
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.http.HttpHeaders;
@@ -110,7 +111,10 @@ public class CustomerController {
 	 * @return retrieved customer
 	 */
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.GET)
-	public Customer getCustomer(@PathVariable("customerId") Long customerId) {
+	public Customer getCustomer(@PathVariable("customerId") Long customerId, HttpServletRequest request) {
+
+		/* authorize access to the referenced customer (fail closed) */
+		AdminController.requireAdminSession(request);
 
 		/* validate customer Id parameter */
       if (null == customerId) {
@@ -301,7 +305,11 @@ public class CustomerController {
                       @RequestParam String tin,
                       @RequestParam String phoneNumber,
                       HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
+                     WebRequest request,
+                     HttpServletRequest servletRequest) throws IOException{
+
+    // authorize creating/overwriting the referenced customer record (fail closed)
+    AdminController.requireAdminSession(servletRequest);
 
     // empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
@@ -354,7 +362,10 @@ public class CustomerController {
 	 */
 	@RequestMapping(value = { "/customers" }, method = { RequestMethod.POST })
 	public Customer createCustomer(@RequestParam Customer customer, HttpServletResponse httpResponse,
-								   WebRequest request) {
+								   WebRequest request, HttpServletRequest servletRequest) {
+
+		/* authorize creating/overwriting the referenced customer record (fail closed) */
+		AdminController.requireAdminSession(servletRequest);
 
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
@@ -373,7 +384,10 @@ public class CustomerController {
 	 */
 	@RequestMapping(value = { "/customers/{customerId}" }, method = { RequestMethod.PUT })
 	public void updateCustomer(@RequestBody Customer customer, @PathVariable("customerId") Long customerId,
-			HttpServletResponse httpResponse) {
+			HttpServletResponse httpResponse, HttpServletRequest request) {
+
+		/* authorize modification of the referenced customer (fail closed) */
+		AdminController.requireAdminSession(request);
 
 		if (!customerRepository.exists(customerId)) {
 			httpResponse.setStatus(HttpStatus.NOT_FOUND.value());
@@ -391,7 +405,11 @@ public class CustomerController {
 	 *            the customer id
 	 */
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.DELETE)
-	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse) {
+	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse,
+			HttpServletRequest request) {
+
+		/* authorize deletion of the referenced customer (fail closed) */
+		AdminController.requireAdminSession(request);
 
 		if (customerRepository.exists(customerId)) {
 			customerRepository.delete(customerId);

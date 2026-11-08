@@ -12,6 +12,8 @@ import javax.crypto.spec.SecretKeySpec;
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
+import io.shiftleft.exception.ForbiddenRequestException;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Controller;
 import org.springframework.util.FileCopyUtils;
@@ -55,7 +57,7 @@ public class AdminController {
   }
 
   // helper
-  private boolean isAdmin(String auth)
+  private static boolean isAdmin(String auth)
   {
     try {
       String[] parts = auth.split("\\.", -1);
@@ -71,6 +73,19 @@ public class AdminController {
     } catch (Exception ex) {
       System.out.println(" cookie cannot be verified: "+ex.getMessage());
       return false;
+    }
+  }
+
+  /**
+   * Authorization check for object-level access: the session must carry a
+   * signed auth cookie value that verifies and carries the admin role.
+   * Fails closed (ForbiddenRequestException -> HTTP 403) otherwise.
+   */
+  static void requireAdminSession(HttpServletRequest request) {
+    HttpSession session = request.getSession(false);
+    Object auth = (session == null) ? null : session.getAttribute("auth");
+    if (auth == null || !isAdmin(auth.toString())) {
+      throw new ForbiddenRequestException();
     }
   }
 
