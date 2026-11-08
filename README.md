@@ -11,8 +11,11 @@ This is a demo application which provides a real world representation of a REST 
  
 ## Run
  ```sh
+ $ export JASYPT_ENCRYPTOR_PASSWORD='<jasypt master password>'
  $ java -jar target/hello-shiftleft-0.0.1.jar
 ```
+
+The Jasypt master password is not committed; it must be provided through the `JASYPT_ENCRYPTOR_PASSWORD` environment variable. AWS credentials are likewise read from the `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` environment variables.
 
 ## Exercise Vulnerabilites and Exposures
 Once the application starts, vulnerabilites and exposures in it can be tested with API access patterns described below and through example scripts provided in the [exploits](https://github.com/ShiftLeftSecurity/HelloShiftLeft/tree/master/exploits) directory. These are summarized below:  

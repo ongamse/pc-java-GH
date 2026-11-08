@@ -1,16 +1,19 @@
 package io.shiftleft.controller;
 
 import io.shiftleft.model.AuthToken;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.util.Base64;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
+import io.shiftleft.exception.ForbiddenRequestException;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Controller;
 import org.springframework.util.FileCopyUtils;
@@ -27,17 +30,62 @@ import org.springframework.web.bind.annotation.RequestMethod;
 public class AdminController {
   private String fail = "redirect:/";
 
+  private static final String HMAC_ALGORITHM = "HmacSHA256";
+  // Signing key: taken from the environment when set, otherwise random per process
+  private static final byte[] AUTH_KEY = loadAuthKey();
+
+  private static byte[] loadAuthKey() {
+    String configured = System.getenv("AUTH_COOKIE_SECRET");
+    if (configured != null && !configured.isEmpty()) {
+      return configured.getBytes(StandardCharsets.UTF_8);
+    }
+    byte[] key = new byte[32];
+    new SecureRandom().nextBytes(key);
+    return key;
+  }
+
+  private static String sign(String payload) throws GeneralSecurityException {
+    Mac mac = Mac.getInstance(HMAC_ALGORITHM);
+    mac.init(new SecretKeySpec(AUTH_KEY, HMAC_ALGORITHM));
+    return Base64.getUrlEncoder().withoutPadding().encodeToString(mac.doFinal(payload.getBytes(StandardCharsets.UTF_8)));
+  }
+
+  // cookie format: <role>.<hmac(role)>; no native deserialization of client data
+  private static String createAuthCookie(AuthToken token) throws GeneralSecurityException {
+    String payload = Integer.toString(token.getRole());
+    return payload + "." + sign(payload);
+  }
+
   // helper
-  private boolean isAdmin(String auth)
+  private static boolean isAdmin(String auth)
   {
     try {
-      ByteArrayInputStream bis = new ByteArrayInputStream(Base64.getDecoder().decode(auth));
-      ObjectInputStream objectInputStream = new ObjectInputStream(bis);
-      Object authToken = objectInputStream.readObject();
-      return ((AuthToken) authToken).isAdmin();
+      String[] parts = auth.split("\\.", -1);
+      if (parts.length != 2) {
+        return false;
+      }
+      byte[] expected = sign(parts[0]).getBytes(StandardCharsets.UTF_8);
+      byte[] actual = parts[1].getBytes(StandardCharsets.UTF_8);
+      if (!MessageDigest.isEqual(expected, actual)) {
+        return false;
+      }
+      return new AuthToken(Integer.parseInt(parts[0])).isAdmin();
     } catch (Exception ex) {
-      System.out.println(" cookie cannot be deserialized: "+ex.getMessage());
+      System.out.println(" cookie cannot be verified: "+ex.getMessage());
       return false;
+    }
+  }
+
+  /**
+   * Authorization check for object-level access: the session must carry a
+   * signed auth cookie value that verifies and carries the admin role.
+   * Fails closed (ForbiddenRequestException -> HTTP 403) otherwise.
+   */
+  static void requireAdminSession(HttpServletRequest request) {
+    HttpSession session = request.getSession(false);
+    Object auth = (session == null) ? null : session.getAttribute("auth");
+    if (auth == null || !isAdmin(auth.toString())) {
+      throw new ForbiddenRequestException();
     }
   }
 
@@ -74,7 +122,7 @@ public class AdminController {
 
   /**
    * Handle login attempt
-   * @param auth cookie value base64 encoded
+   * @param auth signed cookie value (role.hmac)
    * @param password hardcoded value
    * @param response -
    * @param request -
@@ -103,10 +151,7 @@ public class AdminController {
       if(pass[1] != null && pass[1].length()>0 && pass[1].equals("shiftleftsecret"))
       {
         AuthToken authToken = new AuthToken(AuthToken.ADMIN);
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        ObjectOutputStream oos = new ObjectOutputStream(bos);
-        oos.writeObject(authToken);
-        String cookieValue = new String(Base64.getEncoder().encode(bos.toByteArray()));
+        String cookieValue = createAuthCookie(authToken);
         response.addCookie(new Cookie("auth", cookieValue ));
 
         // cookie is lost after redirection

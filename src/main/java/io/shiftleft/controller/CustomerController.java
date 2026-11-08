@@ -22,6 +22,7 @@ import java.util.List;
 
 import java.util.Set;
 import javax.annotation.PostConstruct;
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.http.HttpHeaders;
@@ -104,13 +105,30 @@ public class CustomerController {
 	}
 
 	/**
+	 * Rejects values containing CR or LF so request-derived data cannot split or
+	 * inject HTTP response headers (CWE-113). Fails closed with HTTP 400.
+	 *
+	 * @param value candidate header value
+	 * @return the same value when it is free of CR/LF
+	 */
+	private static String requireNoCrlf(String value) {
+		if (value != null && (value.indexOf('\r') >= 0 || value.indexOf('\n') >= 0)) {
+			throw new InvalidCustomerRequestException();
+		}
+		return value;
+	}
+
+	/**
 	 * Get customer using id. Returns HTTP 404 if customer not found
 	 *
 	 * @param customerId
 	 * @return retrieved customer
 	 */
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.GET)
-	public Customer getCustomer(@PathVariable("customerId") Long customerId) {
+	public Customer getCustomer(@PathVariable("customerId") Long customerId, HttpServletRequest request) {
+
+		/* authorize access to the referenced customer (fail closed) */
+		AdminController.requireAdminSession(request);
 
 		/* validate customer Id parameter */
       if (null == customerId) {
@@ -202,7 +220,7 @@ public class CustomerController {
             // encode the file settings, md5sum is removed
             String s = new String(Base64.getEncoder().encode(filecontent.replace(md5sum, "").getBytes()));
             // setting the new cookie
-            httpResponse.setHeader("Cookie", "settings=" + s + "," + md5sum);
+            httpResponse.setHeader("Cookie", requireNoCrlf("settings=" + s + "," + md5sum));
             return;
           }
         }
@@ -238,7 +256,7 @@ public class CustomerController {
     // Check md5sum
     String cookieMD5sum = cookie[1];
     String calcMD5Sum = DigestUtils.md5Hex(base64txt);
-	if(!cookieMD5sum.equals(calcMD5Sum))
+	if(!MessageDigest.isEqual(cookieMD5sum.getBytes(StandardCharsets.UTF_8), calcMD5Sum.getBytes(StandardCharsets.UTF_8)))
     {
       httpResponse.getOutputStream().println("Wrong md5");
       throw new Exception("Invalid MD5");
@@ -248,7 +266,20 @@ public class CustomerController {
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
+	  // Canonicalize and confine the target to the storage base directory (path traversal guard)
+    java.nio.file.Path baseDir = Paths.get(cpr.getPath()).toAbsolutePath().normalize();
+    java.nio.file.Path target;
+    try {
+      target = baseDir.resolve(settings[0]).normalize();
+    } catch (java.nio.file.InvalidPathException ex) {
+      httpResponse.getOutputStream().println("Invalid file name");
+      throw new Exception("Invalid file name");
+    }
+    if (!target.startsWith(baseDir) || target.equals(baseDir)) {
+      httpResponse.getOutputStream().println("Invalid file name");
+      throw new Exception("Invalid file name");
+    }
+    File file = target.toFile();
     if(!file.exists()) {
       file.getParentFile().mkdirs();
     }
@@ -288,7 +319,14 @@ public class CustomerController {
                       @RequestParam String tin,
                       @RequestParam String phoneNumber,
                       HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
+                     WebRequest request,
+                     HttpServletRequest servletRequest) throws IOException{
+
+    // authorize creating/overwriting the referenced customer record (fail closed)
+    AdminController.requireAdminSession(servletRequest);
+
+    // reject CR/LF in the id before anything is persisted (it is echoed into the Location header)
+    requireNoCrlf(customerId);
 
     // empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
@@ -300,10 +338,10 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+    // fixed relative reference built only from the server-generated numeric id (no request data)
+    httpResponse.setHeader("Location", requireNoCrlf("customers/" + Long.toString(customer1.getId())));
 
-    return customer1.toString().toLowerCase().replace("script","");
+    return HtmlUtils.htmlEscape(customer1.toString().toLowerCase());
   }
 
 	/**
@@ -341,13 +379,17 @@ public class CustomerController {
 	 */
 	@RequestMapping(value = { "/customers" }, method = { RequestMethod.POST })
 	public Customer createCustomer(@RequestParam Customer customer, HttpServletResponse httpResponse,
-								   WebRequest request) {
+								   WebRequest request, HttpServletRequest servletRequest) {
+
+		/* authorize creating/overwriting the referenced customer record (fail closed) */
+		AdminController.requireAdminSession(servletRequest);
 
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
+		// fixed relative reference built only from the persisted numeric id (no request data)
 		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+				requireNoCrlf("customers/" + Long.toString(createdcustomer.getId())));
 
 		return createdcustomer;
 	}
@@ -360,7 +402,10 @@ public class CustomerController {
 	 */
 	@RequestMapping(value = { "/customers/{customerId}" }, method = { RequestMethod.PUT })
 	public void updateCustomer(@RequestBody Customer customer, @PathVariable("customerId") Long customerId,
-			HttpServletResponse httpResponse) {
+			HttpServletResponse httpResponse, HttpServletRequest request) {
+
+		/* authorize modification of the referenced customer (fail closed) */
+		AdminController.requireAdminSession(request);
 
 		if (!customerRepository.exists(customerId)) {
 			httpResponse.setStatus(HttpStatus.NOT_FOUND.value());
@@ -378,7 +423,11 @@ public class CustomerController {
 	 *            the customer id
 	 */
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.DELETE)
-	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse) {
+	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse,
+			HttpServletRequest request) {
+
+		/* authorize deletion of the referenced customer (fail closed) */
+		AdminController.requireAdminSession(request);
 
 		if (customerRepository.exists(customerId)) {
 			customerRepository.delete(customerId);
