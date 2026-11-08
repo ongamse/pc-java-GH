@@ -105,6 +105,20 @@ public class CustomerController {
 	}
 
 	/**
+	 * Rejects values containing CR or LF so request-derived data cannot split or
+	 * inject HTTP response headers (CWE-113). Fails closed with HTTP 400.
+	 *
+	 * @param value candidate header value
+	 * @return the same value when it is free of CR/LF
+	 */
+	private static String requireNoCrlf(String value) {
+		if (value != null && (value.indexOf('\r') >= 0 || value.indexOf('\n') >= 0)) {
+			throw new InvalidCustomerRequestException();
+		}
+		return value;
+	}
+
+	/**
 	 * Get customer using id. Returns HTTP 404 if customer not found
 	 *
 	 * @param customerId
@@ -206,7 +220,7 @@ public class CustomerController {
             // encode the file settings, md5sum is removed
             String s = new String(Base64.getEncoder().encode(filecontent.replace(md5sum, "").getBytes()));
             // setting the new cookie
-            httpResponse.setHeader("Cookie", "settings=" + s + "," + md5sum);
+            httpResponse.setHeader("Cookie", requireNoCrlf("settings=" + s + "," + md5sum));
             return;
           }
         }
@@ -311,6 +325,9 @@ public class CustomerController {
     // authorize creating/overwriting the referenced customer record (fail closed)
     AdminController.requireAdminSession(servletRequest);
 
+    // reject CR/LF in the id before anything is persisted (it is echoed into the Location header)
+    requireNoCrlf(customerId);
+
     // empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
     //dateofbirth example -> "1982-01-10"
@@ -321,8 +338,8 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+    httpResponse.setHeader("Location", requireNoCrlf(String.format("%s/customers/%s",
+                           request.getContextPath(), customer1.getId())));
 
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase());
   }
@@ -371,7 +388,7 @@ public class CustomerController {
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
 		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+				requireNoCrlf(String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
 
 		return createdcustomer;
 	}
