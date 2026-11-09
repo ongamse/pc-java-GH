@@ -108,12 +108,13 @@ public class CustomerController {
 	}
 
 	/**
-	 * Builds a CR/LF-safe "/customers/{id}" Location value; the id is encoded as a
-	 * single URL path segment.
+	 * Builds a fixed server-relative "/customers/{id}" Location value. No
+	 * request-supplied data (e.g. context path) is used, so the redirect target
+	 * cannot be influenced by the caller; the id is encoded as a single URL path
+	 * segment (which also rules out CR/LF).
 	 */
-	private static String customerLocation(WebRequest request, Object id) throws IOException {
-		return String.format("%s/customers/%s", headerSafe(request.getContextPath()),
-				UriUtils.encodePathSegment(String.valueOf(id), "UTF-8"));
+	private static String customerLocation(Object id) throws IOException {
+		return "/customers/" + UriUtils.encodePathSegment(String.valueOf(id), "UTF-8");
 	}
 
 	private void dispatchEventToSalesForce(String event)
@@ -333,7 +334,7 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", customerLocation(request, customer1.getId()));
+    httpResponse.setHeader("Location", customerLocation(customer1.getId()));
 
     // HTML-encode the reflected customer data (incl. firstName) so it cannot render as markup
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
@@ -380,7 +381,7 @@ public class CustomerController {
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
 		try {
-			httpResponse.setHeader("Location", customerLocation(request, customer.getId()));
+			httpResponse.setHeader("Location", customerLocation(customer.getId()));
 		} catch (IOException e) {
 			throw new IllegalStateException("Unable to build Location header", e);
 		}
