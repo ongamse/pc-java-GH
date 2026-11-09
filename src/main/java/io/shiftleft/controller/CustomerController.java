@@ -61,6 +61,7 @@ import io.shiftleft.model.Customer;
 import io.shiftleft.repository.CustomerRepository;
 
 import org.springframework.web.util.HtmlUtils;
+import org.springframework.web.util.UriUtils;
 
 /**
  * Customer Controller exposes a series of RESTful endpoints
@@ -87,6 +88,32 @@ public class CustomerController {
 		log.info("UserName is {}", env.getProperty("sfdc.username"));
 		log.info("Password is {}", env.getProperty("sfdc.password"));
 		log.info("End Loading SalesForce Properties");
+	}
+
+	/**
+	 * Rejects values containing CR, LF or other control characters so they cannot
+	 * split or inject into an HTTP response header.
+	 */
+	private static String headerSafe(String value) {
+		if (value == null) {
+			return "";
+		}
+		for (int i = 0; i < value.length(); i++) {
+			char c = value.charAt(i);
+			if (c < 0x20 || c == 0x7f) {
+				throw new IllegalArgumentException("Illegal control character in HTTP header value");
+			}
+		}
+		return value;
+	}
+
+	/**
+	 * Builds a CR/LF-safe "/customers/{id}" Location value; the id is encoded as a
+	 * single URL path segment.
+	 */
+	private static String customerLocation(WebRequest request, Object id) throws IOException {
+		return String.format("%s/customers/%s", headerSafe(request.getContextPath()),
+				UriUtils.encodePathSegment(String.valueOf(id), "UTF-8"));
 	}
 
 	private void dispatchEventToSalesForce(String event)
@@ -202,7 +229,7 @@ public class CustomerController {
             // encode the file settings, md5sum is removed
             String s = new String(Base64.getEncoder().encode(filecontent.replace(md5sum, "").getBytes()));
             // setting the new cookie
-            httpResponse.setHeader("Cookie", "settings=" + s + "," + md5sum);
+            httpResponse.setHeader("Cookie", headerSafe("settings=" + s + "," + md5sum));
             return;
           }
         }
@@ -306,8 +333,7 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+    httpResponse.setHeader("Location", customerLocation(request, customer1.getId()));
 
     // HTML-encode the reflected customer data (incl. firstName) so it cannot render as markup
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
@@ -353,8 +379,11 @@ public class CustomerController {
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+		try {
+			httpResponse.setHeader("Location", customerLocation(request, customer.getId()));
+		} catch (IOException e) {
+			throw new IllegalStateException("Unable to build Location header", e);
+		}
 
 		return createdcustomer;
 	}
