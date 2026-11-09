@@ -6,6 +6,8 @@ import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.util.HtmlUtils;
 
 
 /**
@@ -15,9 +17,11 @@ import org.springframework.web.bind.annotation.RequestParam;
 public class SearchController {
 
   @RequestMapping(value = "/search/user", method = RequestMethod.GET)
+  @ResponseBody
   public String doGetSearch(@RequestParam String foo, HttpServletResponse response, HttpServletRequest request) {
     // The search term is treated as plain text and is never evaluated as an expression.
+    // It is HTML-encoded because it is reflected directly in the response body.
     java.lang.Object message = foo;
-    return message.toString();
+    return HtmlUtils.htmlEscape(message.toString());
   }
 }
