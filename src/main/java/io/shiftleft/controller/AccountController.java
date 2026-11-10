@@ -1,6 +1,8 @@
 package io.shiftleft.controller;
 
 import io.shiftleft.data.DataLoader;
+import io.shiftleft.exception.CustomerNotFoundException;
+import io.shiftleft.exception.ForbiddenException;
 import io.shiftleft.model.Account;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -39,14 +41,15 @@ public class AccountController {
     }
 
     @GetMapping("/account/{accountId}")
-    public Account getAccount(@PathVariable long accountId) {
+    public Account getAccount(@PathVariable long accountId, HttpServletRequest request) {
         log.info("Account Data is {}", this.accountRepository.findOne(1l).toString());
-        return this.accountRepository.findOne(accountId);
+        return findAuthorizedAccount(accountId, request);
     }
 
     @PostMapping("/account/{accountId}/deposit")
-    public Account depositIntoAccount(@RequestParam double amount, @PathVariable long accountId) {
-        Account account = this.accountRepository.findOne(accountId);
+    public Account depositIntoAccount(@RequestParam double amount, @PathVariable long accountId,
+                                      HttpServletRequest request) {
+        Account account = findAuthorizedAccount(accountId, request);
         log.info("Account Data is {}", account.toString());
         account.deposit(amount);
         this.accountRepository.save(account);
@@ -54,8 +57,9 @@ public class AccountController {
     }
 
     @PostMapping("/account/{accountId}/withdraw")
-    public Account withdrawFromAccount(@RequestParam double amount, @PathVariable long accountId) {
-        Account account = this.accountRepository.findOne(accountId);
+    public Account withdrawFromAccount(@RequestParam double amount, @PathVariable long accountId,
+                                       HttpServletRequest request) {
+        Account account = findAuthorizedAccount(accountId, request);
         account.withdraw(amount);
         this.accountRepository.save(account);
         log.info("Account Data is {}", account.toString());
@@ -63,11 +67,29 @@ public class AccountController {
     }
 
     @PostMapping("/account/{accountId}/addInterest")
-    public Account addInterestToAccount(@RequestParam double amount, @PathVariable long accountId) {
-        Account account = this.accountRepository.findOne(accountId);
+    public Account addInterestToAccount(@RequestParam double amount, @PathVariable long accountId,
+                                        HttpServletRequest request) {
+        Account account = findAuthorizedAccount(accountId, request);
         account.addInterest();
         this.accountRepository.save(account);
         log.info("Account Data is {}", account.toString());
+        return account;
+    }
+
+    /**
+     * Looks up an account by a client-supplied id and enforces authorization.
+     * The app has no per-customer login; the only authenticated principal is the HMAC-verified
+     * admin session (see AdminController), so access to a record addressed by id is limited to it.
+     * Fails closed: 403 when not authorized, 404 when the account does not exist.
+     */
+    private Account findAuthorizedAccount(long accountId, HttpServletRequest request) {
+        if (!AdminController.isAdminSession(request)) {
+            throw new ForbiddenException();
+        }
+        Account account = this.accountRepository.findOne(accountId);
+        if (account == null) {
+            throw new CustomerNotFoundException();
+        }
         return account;
     }
 

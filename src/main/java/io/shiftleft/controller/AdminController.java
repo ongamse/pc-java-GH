@@ -12,6 +12,7 @@ import javax.crypto.spec.SecretKeySpec;
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Controller;
 import org.springframework.util.FileCopyUtils;
@@ -56,7 +57,20 @@ public class AdminController {
   }
 
   // helper
-  private boolean isAdmin(String auth)
+  /**
+   * True when the request's session carries a valid (HMAC-verified) admin auth token.
+   * Used by other controllers to authorize access to records addressed by client-supplied ids.
+   */
+  static boolean isAdminSession(HttpServletRequest request) {
+    HttpSession session = request.getSession(false);
+    if (session == null) {
+      return false;
+    }
+    Object auth = session.getAttribute("auth");
+    return auth != null && isAdmin(auth.toString());
+  }
+
+  private static boolean isAdmin(String auth)
   {
     try {
       String[] parts = auth.split("\\.", -1);

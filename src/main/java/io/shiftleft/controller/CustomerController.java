@@ -22,6 +22,7 @@ import java.util.List;
 
 import java.util.Set;
 import javax.annotation.PostConstruct;
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.http.HttpHeaders;
@@ -56,6 +57,7 @@ import com.ulisesbocchio.jasyptspringboot.annotation.EnableEncryptableProperties
 
 import io.shiftleft.data.DataLoader;
 import io.shiftleft.exception.CustomerNotFoundException;
+import io.shiftleft.exception.ForbiddenException;
 import io.shiftleft.exception.InvalidCustomerRequestException;
 import io.shiftleft.model.Customer;
 import io.shiftleft.repository.CustomerRepository;
@@ -89,6 +91,17 @@ public class CustomerController {
 		log.info("End Loading SalesForce Properties");
 	}
 
+	/**
+	 * Authorization for records addressed by client-supplied ids. The app has no per-customer
+	 * login; the only authenticated principal is the HMAC-verified admin session (AdminController).
+	 * Fails closed with 403.
+	 */
+	private void requireAuthorizedSession(HttpServletRequest servletRequest) {
+		if (!AdminController.isAdminSession(servletRequest)) {
+			throw new ForbiddenException();
+		}
+	}
+
 	private void dispatchEventToSalesForce(String event)
 			throws ClientProtocolException, IOException, AuthenticationException {
 		CloseableHttpClient client = HttpClients.createDefault();
@@ -110,12 +123,14 @@ public class CustomerController {
 	 * @return retrieved customer
 	 */
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.GET)
-	public Customer getCustomer(@PathVariable("customerId") Long customerId) {
+	public Customer getCustomer(@PathVariable("customerId") Long customerId, HttpServletRequest servletRequest) {
 
 		/* validate customer Id parameter */
       if (null == customerId) {
         throw new InvalidCustomerRequestException();
       }
+
+      requireAuthorizedSession(servletRequest);
 
       Customer customer = customerRepository.findOne(customerId);
 		if (null == customer) {
@@ -297,7 +312,10 @@ public class CustomerController {
                       @RequestParam String tin,
                       @RequestParam String phoneNumber,
                       HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
+                     WebRequest request,
+                     HttpServletRequest servletRequest) throws IOException{
+
+    requireAuthorizedSession(servletRequest);
 
     // empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
@@ -370,11 +388,15 @@ public class CustomerController {
 	 */
 	@RequestMapping(value = { "/customers/{customerId}" }, method = { RequestMethod.PUT })
 	public void updateCustomer(@RequestBody Customer customer, @PathVariable("customerId") Long customerId,
-			HttpServletResponse httpResponse) {
+			HttpServletResponse httpResponse, HttpServletRequest servletRequest) {
+
+		requireAuthorizedSession(servletRequest);
 
 		if (!customerRepository.exists(customerId)) {
 			httpResponse.setStatus(HttpStatus.NOT_FOUND.value());
 		} else {
+			// the path id is authoritative: do not let the body overwrite a different record
+			customer.setId(customerId);
 			customerRepository.save(customer);
 			httpResponse.setStatus(HttpStatus.NO_CONTENT.value());
 		}
@@ -388,7 +410,10 @@ public class CustomerController {
 	 *            the customer id
 	 */
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.DELETE)
-	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse) {
+	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse,
+			HttpServletRequest servletRequest) {
+
+		requireAuthorizedSession(servletRequest);
 
 		if (customerRepository.exists(customerId)) {
 			customerRepository.delete(customerId);
