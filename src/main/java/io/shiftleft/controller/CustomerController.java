@@ -312,7 +312,8 @@ public class CustomerController {
     httpResponse.setHeader("Location", String.format("%s/customers/%s",
                            request.getContextPath(), customer1.getId()));
 
-    return customer1.toString().toLowerCase().replace("script","");
+    // customer fields are attacker-controlled request params: HTML-encode before writing into the response
+    return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
   }
 
 	/**
