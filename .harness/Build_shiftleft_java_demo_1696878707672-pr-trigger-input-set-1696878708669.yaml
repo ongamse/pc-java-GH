@@ -1,3 +1,4 @@
+# Harness input set name/identifier below are resource ids, not credentials.
 inputSet:
   name: Build_shiftleft_java_demo_1696878707672-pr-trigger-input-set
   identifier: Build_shiftleft_java_demo_1696878707672prtriggerinputset

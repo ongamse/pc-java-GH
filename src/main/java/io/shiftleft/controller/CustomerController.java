@@ -22,6 +22,7 @@ import java.util.List;
 
 import java.util.Set;
 import javax.annotation.PostConstruct;
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.http.HttpHeaders;
@@ -56,6 +57,7 @@ import com.ulisesbocchio.jasyptspringboot.annotation.EnableEncryptableProperties
 
 import io.shiftleft.data.DataLoader;
 import io.shiftleft.exception.CustomerNotFoundException;
+import io.shiftleft.exception.ForbiddenException;
 import io.shiftleft.exception.InvalidCustomerRequestException;
 import io.shiftleft.model.Customer;
 import io.shiftleft.repository.CustomerRepository;
@@ -89,6 +91,51 @@ public class CustomerController {
 		log.info("End Loading SalesForce Properties");
 	}
 
+	/**
+	 * Authorization for records addressed by client-supplied ids. The app has no per-customer
+	 * login; the only authenticated principal is the HMAC-verified admin session (AdminController).
+	 * Fails closed with 403.
+	 */
+	private void requireAuthorizedSession(HttpServletRequest servletRequest) {
+		if (!AdminController.isAdminSession(servletRequest)) {
+			throw new ForbiddenException();
+		}
+	}
+
+	/**
+	 * Removes CR, LF and all other control characters from a value that is placed into an HTTP
+	 * response header, preventing header injection / response splitting (CWE-113).
+	 */
+	static String sanitizeHeaderValue(String value) {
+		if (value == null) {
+			return "";
+		}
+		StringBuilder sb = new StringBuilder(value.length());
+		for (int i = 0; i < value.length(); i++) {
+			char c = value.charAt(i);
+			if (!Character.isISOControl(c) && c != '\u2028' && c != '\u2029') {
+				sb.append(c);
+			}
+		}
+		return sb.toString();
+	}
+
+	/**
+	 * Builds the Location value for a created customer from the server-configured context path
+	 * (never from request data) so the redirect target cannot be steered by the client (CWE-601).
+	 */
+	private String customerLocation(Object customerId) {
+		String contextPath = env.getProperty("server.servlet.context-path",
+				env.getProperty("server.context-path", ""));
+		if (contextPath == null || contextPath.isEmpty() || "/".equals(contextPath)
+				|| !contextPath.matches("/[A-Za-z0-9._~/-]*") || contextPath.startsWith("//")) {
+			contextPath = "";
+		} else if (contextPath.endsWith("/")) {
+			contextPath = contextPath.substring(0, contextPath.length() - 1);
+		}
+		return sanitizeHeaderValue(contextPath + "/customers/" + customerId);
+	}
+
 	private void dispatchEventToSalesForce(String event)
 			throws ClientProtocolException, IOException, AuthenticationException {
 		CloseableHttpClient client = HttpClients.createDefault();
@@ -110,12 +157,14 @@ public class CustomerController {
 	 * @return retrieved customer
 	 */
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.GET)
-	public Customer getCustomer(@PathVariable("customerId") Long customerId) {
+	public Customer getCustomer(@PathVariable("customerId") Long customerId, HttpServletRequest servletRequest) {
 
 		/* validate customer Id parameter */
       if (null == customerId) {
         throw new InvalidCustomerRequestException();
       }
+
+      requireAuthorizedSession(servletRequest);
 
       Customer customer = customerRepository.findOne(customerId);
 		if (null == customer) {
@@ -202,7 +251,7 @@ public class CustomerController {
             // encode the file settings, md5sum is removed
             String s = new String(Base64.getEncoder().encode(filecontent.replace(md5sum, "").getBytes()));
             // setting the new cookie
-            httpResponse.setHeader("Cookie", "settings=" + s + "," + md5sum);
+            httpResponse.setHeader("Cookie", sanitizeHeaderValue("settings=" + s + "," + md5sum));
             return;
           }
         }
@@ -238,7 +287,7 @@ public class CustomerController {
     // Check md5sum
     String cookieMD5sum = cookie[1];
     String calcMD5Sum = DigestUtils.md5Hex(base64txt);
-	if(!cookieMD5sum.equals(calcMD5Sum))
+	if(!MessageDigest.isEqual(cookieMD5sum.getBytes(StandardCharsets.UTF_8), calcMD5Sum.getBytes(StandardCharsets.UTF_8)))
     {
       httpResponse.getOutputStream().println("Wrong md5");
       throw new Exception("Invalid MD5");
@@ -248,7 +297,16 @@ public class CustomerController {
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
+    // contain the target under the base directory (reject absolute paths, '..' and other escapes)
+    java.nio.file.Path baseDir = Paths.get(cpr.getPath()).toAbsolutePath().normalize();
+    java.nio.file.Path target = baseDir.resolve(settings[0]).normalize();
+    if (settings[0].isEmpty() || settings[0].indexOf('\0') >= 0
+        || Paths.get(settings[0]).isAbsolute()
+        || !target.startsWith(baseDir) || target.equals(baseDir)) {
+      httpResponse.getOutputStream().println("Invalid settings file name");
+      throw new Exception("Invalid settings file name");
+    }
+    File file = target.toFile();
     if(!file.exists()) {
       file.getParentFile().mkdirs();
     }
@@ -288,7 +346,10 @@ public class CustomerController {
                       @RequestParam String tin,
                       @RequestParam String phoneNumber,
                       HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
+                     WebRequest request,
+                     HttpServletRequest servletRequest) throws IOException{
+
+    requireAuthorizedSession(servletRequest);
 
     // empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
@@ -300,10 +361,10 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+    httpResponse.setHeader("Location", customerLocation(customer1.getId()));
 
-    return customer1.toString().toLowerCase().replace("script","");
+    // customer fields are attacker-controlled request params: HTML-encode before writing into the response
+    return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
   }
 
 	/**
@@ -346,8 +407,7 @@ public class CustomerController {
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+		httpResponse.setHeader("Location", customerLocation(createdcustomer.getId()));
 
 		return createdcustomer;
 	}
@@ -360,11 +420,15 @@ public class CustomerController {
 	 */
 	@RequestMapping(value = { "/customers/{customerId}" }, method = { RequestMethod.PUT })
 	public void updateCustomer(@RequestBody Customer customer, @PathVariable("customerId") Long customerId,
-			HttpServletResponse httpResponse) {
+			HttpServletResponse httpResponse, HttpServletRequest servletRequest) {
+
+		requireAuthorizedSession(servletRequest);
 
 		if (!customerRepository.exists(customerId)) {
 			httpResponse.setStatus(HttpStatus.NOT_FOUND.value());
 		} else {
+			// the path id is authoritative: do not let the body overwrite a different record
+			customer.setId(customerId);
 			customerRepository.save(customer);
 			httpResponse.setStatus(HttpStatus.NO_CONTENT.value());
 		}
@@ -378,7 +442,10 @@ public class CustomerController {
 	 *            the customer id
 	 */
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.DELETE)
-	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse) {
+	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse,
+			HttpServletRequest servletRequest) {
+
+		requireAuthorizedSession(servletRequest);
 
 		if (customerRepository.exists(customerId)) {
 			customerRepository.delete(customerId);
