@@ -120,6 +120,22 @@ public class CustomerController {
 		return sb.toString();
 	}
 
+	/**
+	 * Builds the Location value for a created customer from the server-configured context path
+	 * (never from request data) so the redirect target cannot be steered by the client (CWE-601).
+	 */
+	private String customerLocation(Object customerId) {
+		String contextPath = env.getProperty("server.servlet.context-path",
+				env.getProperty("server.context-path", ""));
+		if (contextPath == null || contextPath.isEmpty() || "/".equals(contextPath)
+				|| !contextPath.matches("/[A-Za-z0-9._~/-]*") || contextPath.startsWith("//")) {
+			contextPath = "";
+		} else if (contextPath.endsWith("/")) {
+			contextPath = contextPath.substring(0, contextPath.length() - 1);
+		}
+		return sanitizeHeaderValue(contextPath + "/customers/" + customerId);
+	}
+
 	private void dispatchEventToSalesForce(String event)
 			throws ClientProtocolException, IOException, AuthenticationException {
 		CloseableHttpClient client = HttpClients.createDefault();
@@ -345,8 +361,7 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", sanitizeHeaderValue(String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId())));
+    httpResponse.setHeader("Location", customerLocation(customer1.getId()));
 
     // customer fields are attacker-controlled request params: HTML-encode before writing into the response
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
@@ -392,8 +407,7 @@ public class CustomerController {
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				sanitizeHeaderValue(String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
+		httpResponse.setHeader("Location", customerLocation(createdcustomer.getId()));
 
 		return createdcustomer;
 	}
