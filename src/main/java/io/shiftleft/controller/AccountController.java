@@ -1,6 +1,7 @@
 package io.shiftleft.controller;
 
 import io.shiftleft.data.DataLoader;
+import io.shiftleft.exception.AccessDeniedException;
 import io.shiftleft.model.Account;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -24,6 +25,17 @@ public class AccountController {
 
     private static Logger log = LoggerFactory.getLogger(DataLoader.class);
     
+    /**
+     * Accounts have no per-user owner; the only authenticated principal in this app is the
+     * admin session established by /admin/login. Direct object access by id is therefore
+     * restricted to that principal (fail closed, HTTP 403).
+     */
+    private void requireAuthorizedPrincipal(HttpServletRequest request) {
+        if (!AdminController.hasAdminSession(request)) {
+            throw new AccessDeniedException();
+        }
+    }
+
     @GetMapping("/account")
     public Iterable<Account> getAccountList(HttpServletResponse response, HttpServletRequest request) {
         response.addHeader("test-header-detection", new Account().toString());
@@ -39,13 +51,16 @@ public class AccountController {
     }
 
     @GetMapping("/account/{accountId}")
-    public Account getAccount(@PathVariable long accountId) {
+    public Account getAccount(@PathVariable long accountId, HttpServletRequest request) {
+        requireAuthorizedPrincipal(request);
         log.info("Account Data is {}", this.accountRepository.findOne(1l).toString());
         return this.accountRepository.findOne(accountId);
     }
 
     @PostMapping("/account/{accountId}/deposit")
-    public Account depositIntoAccount(@RequestParam double amount, @PathVariable long accountId) {
+    public Account depositIntoAccount(@RequestParam double amount, @PathVariable long accountId,
+                                      HttpServletRequest request) {
+        requireAuthorizedPrincipal(request);
         Account account = this.accountRepository.findOne(accountId);
         log.info("Account Data is {}", account.toString());
         account.deposit(amount);
@@ -54,7 +69,9 @@ public class AccountController {
     }
 
     @PostMapping("/account/{accountId}/withdraw")
-    public Account withdrawFromAccount(@RequestParam double amount, @PathVariable long accountId) {
+    public Account withdrawFromAccount(@RequestParam double amount, @PathVariable long accountId,
+                                       HttpServletRequest request) {
+        requireAuthorizedPrincipal(request);
         Account account = this.accountRepository.findOne(accountId);
         account.withdraw(amount);
         this.accountRepository.save(account);
@@ -63,7 +80,9 @@ public class AccountController {
     }
 
     @PostMapping("/account/{accountId}/addInterest")
-    public Account addInterestToAccount(@RequestParam double amount, @PathVariable long accountId) {
+    public Account addInterestToAccount(@RequestParam double amount, @PathVariable long accountId,
+                                        HttpServletRequest request) {
+        requireAuthorizedPrincipal(request);
         Account account = this.accountRepository.findOne(accountId);
         account.addInterest();
         this.accountRepository.save(account);
