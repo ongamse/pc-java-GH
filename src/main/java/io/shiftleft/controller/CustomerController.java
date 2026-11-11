@@ -134,6 +134,26 @@ public class CustomerController {
 		return value;
 	}
 
+	private static final java.util.regex.Pattern SAFE_CONTEXT_PATH =
+			java.util.regex.Pattern.compile("(/[A-Za-z0-9._~-]+)+");
+
+	/**
+	 * Builds the Location header for a created customer as a same-origin, server-relative
+	 * path. The request-derived context path is only used when it is a plain sequence of
+	 * path segments; anything else (empty segments such as "//host", backslashes, schemes,
+	 * ".." segments, control characters) is dropped so the target can never point to an
+	 * external host.
+	 */
+	private static String buildCustomerLocation(String contextPath, long customerId) {
+		String prefix = "";
+		if (contextPath != null && SAFE_CONTEXT_PATH.matcher(contextPath).matches()
+				&& !contextPath.contains("/../") && !contextPath.endsWith("/..")
+				&& !contextPath.contains("/./") && !contextPath.endsWith("/.")) {
+			prefix = contextPath;
+		}
+		return requireSafeHeaderValue(prefix + "/customers/" + customerId);
+	}
+
 	/**
 	 * Get customer using id. Returns HTTP 404 if customer not found
 	 *
@@ -356,8 +376,7 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", requireSafeHeaderValue(String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId())));
+    httpResponse.setHeader("Location", buildCustomerLocation(request.getContextPath(), customer1.getId()));
 
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
   }
@@ -404,8 +423,7 @@ public class CustomerController {
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location", requireSafeHeaderValue(
-				String.format("%s/customers/%s", request.getContextPath(), createdcustomer.getId())));
+		httpResponse.setHeader("Location", buildCustomerLocation(request.getContextPath(), createdcustomer.getId()));
 
 		return createdcustomer;
 	}
