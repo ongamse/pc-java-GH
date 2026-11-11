@@ -57,8 +57,21 @@ public class AdminController {
     return enc.encodeToString(payload) + "." + enc.encodeToString(sign(payload));
   }
 
+  /**
+   * Authorization helper shared by controllers: true only when the HTTP session holds a
+   * validly signed admin auth token (as established by /admin/login). Fails closed.
+   */
+  static boolean hasAdminSession(HttpServletRequest request) {
+    javax.servlet.http.HttpSession session = request.getSession(false);
+    if (session == null) {
+      return false;
+    }
+    Object auth = session.getAttribute("auth");
+    return auth != null && isAdmin(auth.toString());
+  }
+
   // helper
-  private boolean isAdmin(String auth)
+  private static boolean isAdmin(String auth)
   {
     try {
       String[] parts = auth.split("\\.", -1);
