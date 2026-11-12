@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -21,6 +22,7 @@ import java.util.HashSet;
 import java.util.List;
 
 import java.util.Set;
+import java.util.regex.Pattern;
 import javax.annotation.PostConstruct;
 import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.codec.digest.DigestUtils;
@@ -87,6 +89,40 @@ public class CustomerController {
 		log.info("UserName is {}", env.getProperty("sfdc.username"));
 		log.info("Password is {}", env.getProperty("sfdc.password"));
 		log.info("End Loading SalesForce Properties");
+	}
+
+	/**
+	 * Removes CR, LF and other control characters from a value before it is
+	 * placed in an HTTP header, preventing response splitting / header injection.
+	 */
+	private static String sanitizeHeaderValue(String value) {
+		if (value == null) {
+			return "";
+		}
+		StringBuilder sb = new StringBuilder(value.length());
+		for (int i = 0; i < value.length(); i++) {
+			char c = value.charAt(i);
+			if (c == '\t' || (c >= 0x20 && c != 0x7f && !Character.isISOControl(c))) {
+				sb.append(c);
+			}
+		}
+		return sb.toString();
+	}
+
+	private static final Pattern SAFE_CONTEXT_PATH = Pattern.compile("^(/[A-Za-z0-9._~-]+)*$");
+
+	/**
+	 * Builds a same-origin, relative Location value for a customer resource. The
+	 * request-derived context path is only used when it is a plain path made of
+	 * safe segments; otherwise (e.g. "//host", absolute URLs, control chars) it is
+	 * dropped so the redirect target can never point to another origin.
+	 */
+	private static String buildCustomerLocation(WebRequest request, long customerId) {
+		String contextPath = request.getContextPath();
+		if (contextPath == null || !SAFE_CONTEXT_PATH.matcher(contextPath).matches()) {
+			contextPath = "";
+		}
+		return contextPath + "/customers/" + customerId;
 	}
 
 	private void dispatchEventToSalesForce(String event)
@@ -202,7 +238,7 @@ public class CustomerController {
             // encode the file settings, md5sum is removed
             String s = new String(Base64.getEncoder().encode(filecontent.replace(md5sum, "").getBytes()));
             // setting the new cookie
-            httpResponse.setHeader("Cookie", "settings=" + s + "," + md5sum);
+            httpResponse.setHeader("Cookie", sanitizeHeaderValue("settings=" + s + "," + md5sum));
             return;
           }
         }
@@ -238,7 +274,7 @@ public class CustomerController {
     // Check md5sum
     String cookieMD5sum = cookie[1];
     String calcMD5Sum = DigestUtils.md5Hex(base64txt);
-	if(!cookieMD5sum.equals(calcMD5Sum))
+	if(!MessageDigest.isEqual(cookieMD5sum.getBytes(StandardCharsets.UTF_8), calcMD5Sum.getBytes(StandardCharsets.UTF_8)))
     {
       httpResponse.getOutputStream().println("Wrong md5");
       throw new Exception("Invalid MD5");
@@ -248,12 +284,19 @@ public class CustomerController {
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
-    if(!file.exists()) {
-      file.getParentFile().mkdirs();
+    // Confine the target to the settings base directory (reject traversal / absolute paths)
+    Path baseDir = Paths.get(cpr.getPath()).toAbsolutePath().normalize();
+    Path target = baseDir.resolve(settings[0]).normalize();
+    if (!target.startsWith(baseDir) || target.equals(baseDir)) {
+      httpResponse.getOutputStream().println("Invalid file name");
+      throw new Exception("Invalid settings file path");
+    }
+    Path parent = target.getParent();
+    if (!Files.exists(target)) {
+      Files.createDirectories(parent);
     }
 
-    FileOutputStream fos = new FileOutputStream(file, true);
+    FileOutputStream fos = new FileOutputStream(target.toFile(), true);
     // First entry is the filename -> remove it
     String[] settingsArr = Arrays.copyOfRange(settings, 1, settings.length);
     // on setting at a linez
@@ -300,10 +343,10 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+    httpResponse.setHeader("Location", buildCustomerLocation(request, customer1.getId()));
 
-    return customer1.toString().toLowerCase().replace("script","");
+    // HTML-encode the response body since it embeds request-supplied values
+    return HtmlUtils.htmlEscape(customer1.toString().toLowerCase());
   }
 
 	/**
@@ -346,8 +389,7 @@ public class CustomerController {
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+		httpResponse.setHeader("Location", buildCustomerLocation(request, customer.getId()));
 
 		return createdcustomer;
 	}
