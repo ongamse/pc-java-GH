@@ -22,6 +22,7 @@ import java.util.HashSet;
 import java.util.List;
 
 import java.util.Set;
+import java.util.regex.Pattern;
 import javax.annotation.PostConstruct;
 import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.codec.digest.DigestUtils;
@@ -106,6 +107,22 @@ public class CustomerController {
 			}
 		}
 		return sb.toString();
+	}
+
+	private static final Pattern SAFE_CONTEXT_PATH = Pattern.compile("^(/[A-Za-z0-9._~-]+)*$");
+
+	/**
+	 * Builds a same-origin, relative Location value for a customer resource. The
+	 * request-derived context path is only used when it is a plain path made of
+	 * safe segments; otherwise (e.g. "//host", absolute URLs, control chars) it is
+	 * dropped so the redirect target can never point to another origin.
+	 */
+	private static String buildCustomerLocation(WebRequest request, long customerId) {
+		String contextPath = request.getContextPath();
+		if (contextPath == null || !SAFE_CONTEXT_PATH.matcher(contextPath).matches()) {
+			contextPath = "";
+		}
+		return contextPath + "/customers/" + customerId;
 	}
 
 	private void dispatchEventToSalesForce(String event)
@@ -326,8 +343,7 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", sanitizeHeaderValue(String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId())));
+    httpResponse.setHeader("Location", buildCustomerLocation(request, customer1.getId()));
 
     // HTML-encode the response body since it embeds request-supplied values
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase());
@@ -373,8 +389,7 @@ public class CustomerController {
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				sanitizeHeaderValue(String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
+		httpResponse.setHeader("Location", buildCustomerLocation(request, customer.getId()));
 
 		return createdcustomer;
 	}
