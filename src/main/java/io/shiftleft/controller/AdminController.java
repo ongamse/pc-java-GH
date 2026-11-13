@@ -31,7 +31,7 @@ public class AdminController {
   private String fail = "redirect:/";
 
   // helper
-  private boolean isAdmin(String auth)
+  static boolean isAdmin(String auth)
   {
     try {
       ByteArrayInputStream bis = new ByteArrayInputStream(Base64.getDecoder().decode(auth));
