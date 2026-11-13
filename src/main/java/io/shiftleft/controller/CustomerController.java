@@ -91,6 +91,17 @@ public class CustomerController {
 		log.info("End Loading SalesForce Properties");
 	}
 
+	/**
+	 * Removes CR, LF and other control characters (except TAB) so that
+	 * request-derived data cannot split or inject HTTP response headers.
+	 */
+	private static String sanitizeHeaderValue(String value) {
+		if (value == null) {
+			return null;
+		}
+		return value.replaceAll("[\\p{Cntrl}&&[^\\t]]", "");
+	}
+
 	private void dispatchEventToSalesForce(String event)
 			throws ClientProtocolException, IOException, AuthenticationException {
 		CloseableHttpClient client = HttpClients.createDefault();
@@ -206,7 +217,7 @@ public class CustomerController {
             // encode the file settings, md5sum is removed
             String s = new String(Base64.getEncoder().encode(filecontent.replace(md5sum, "").getBytes()));
             // setting the new cookie
-            httpResponse.setHeader("Cookie", "settings=" + s + "," + md5sum);
+            httpResponse.setHeader("Cookie", sanitizeHeaderValue("settings=" + s + "," + md5sum));
             return;
           }
         }
@@ -311,8 +322,8 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+    httpResponse.setHeader("Location", sanitizeHeaderValue(String.format("%s/customers/%s",
+                           request.getContextPath(), customer1.getId())));
 
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase());
   }
@@ -358,7 +369,7 @@ public class CustomerController {
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
 		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+				sanitizeHeaderValue(String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
 
 		return createdcustomer;
 	}
