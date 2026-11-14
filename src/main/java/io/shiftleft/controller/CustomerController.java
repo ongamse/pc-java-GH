@@ -107,6 +107,20 @@ public class CustomerController {
 		return value;
 	}
 
+	/**
+	 * Builds a same-origin, relative Location value for a customer. The context
+	 * path must be empty or a plain absolute path made of safe segments, so that
+	 * absolute URLs, scheme-relative ("//host") values, backslashes and dot
+	 * segments can never end up in the redirect target (CWE-601).
+	 */
+	private static String safeCustomerLocation(String contextPath, long customerId) {
+		String ctx = contextPath == null ? "" : contextPath;
+		if (!ctx.matches("(/[A-Za-z0-9._~-]+)*") || ctx.contains("..")) {
+			throw new IllegalArgumentException("Illegal context path for redirect");
+		}
+		return ctx + "/customers/" + customerId;
+	}
+
 	private void dispatchEventToSalesForce(String event)
 			throws ClientProtocolException, IOException, AuthenticationException {
 		CloseableHttpClient client = HttpClients.createDefault();
@@ -331,8 +345,8 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", safeHeaderValue(String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId())));
+    httpResponse.setHeader("Location", safeHeaderValue(
+                           safeCustomerLocation(request.getContextPath(), customer1.getId())));
 
     // customer fields are attacker-controlled and this String is served as HTML: encode it
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
@@ -379,7 +393,7 @@ public class CustomerController {
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
 		httpResponse.setHeader("Location",
-				safeHeaderValue(String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
+				safeHeaderValue(safeCustomerLocation(request.getContextPath(), customer.getId())));
 
 		return createdcustomer;
 	}
