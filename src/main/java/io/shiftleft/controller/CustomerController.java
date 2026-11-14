@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -87,6 +88,37 @@ public class CustomerController {
 		log.info("UserName is {}", env.getProperty("sfdc.username"));
 		log.info("Password is {}", env.getProperty("sfdc.password"));
 		log.info("End Loading SalesForce Properties");
+	}
+
+	/**
+	 * Rejects values containing CR, LF or other control characters so that they
+	 * cannot split or inject HTTP response headers (CWE-113).
+	 */
+	private static String safeHeaderValue(String value) {
+		if (value == null) {
+			return "";
+		}
+		for (int i = 0; i < value.length(); i++) {
+			char c = value.charAt(i);
+			if (c < 0x20 || c == 0x7f) {
+				throw new IllegalArgumentException("Illegal character in HTTP header value");
+			}
+		}
+		return value;
+	}
+
+	/**
+	 * Builds a same-origin, relative Location value for a customer. The context
+	 * path must be empty or a plain absolute path made of safe segments, so that
+	 * absolute URLs, scheme-relative ("//host") values, backslashes and dot
+	 * segments can never end up in the redirect target (CWE-601).
+	 */
+	private static String safeCustomerLocation(String contextPath, long customerId) {
+		String ctx = contextPath == null ? "" : contextPath;
+		if (!ctx.matches("(/[A-Za-z0-9._~-]+)*") || ctx.contains("..")) {
+			throw new IllegalArgumentException("Illegal context path for redirect");
+		}
+		return ctx + "/customers/" + customerId;
 	}
 
 	private void dispatchEventToSalesForce(String event)
@@ -202,7 +234,7 @@ public class CustomerController {
             // encode the file settings, md5sum is removed
             String s = new String(Base64.getEncoder().encode(filecontent.replace(md5sum, "").getBytes()));
             // setting the new cookie
-            httpResponse.setHeader("Cookie", "settings=" + s + "," + md5sum);
+            httpResponse.setHeader("Cookie", safeHeaderValue("settings=" + s + "," + md5sum));
             return;
           }
         }
@@ -238,7 +270,7 @@ public class CustomerController {
     // Check md5sum
     String cookieMD5sum = cookie[1];
     String calcMD5Sum = DigestUtils.md5Hex(base64txt);
-	if(!cookieMD5sum.equals(calcMD5Sum))
+	if(!MessageDigest.isEqual(cookieMD5sum.getBytes(StandardCharsets.UTF_8), calcMD5Sum.getBytes(StandardCharsets.UTF_8)))
     {
       httpResponse.getOutputStream().println("Wrong md5");
       throw new Exception("Invalid MD5");
@@ -248,7 +280,20 @@ public class CustomerController {
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
+	  Path baseDir = Paths.get(cpr.getPath()).toAbsolutePath().normalize();
+    Path target;
+    try {
+      target = baseDir.resolve(settings[0]).normalize();
+    } catch (java.nio.file.InvalidPathException e) {
+      httpResponse.getOutputStream().println("Invalid file name");
+      throw new Exception("Invalid file name");
+    }
+    // reject anything that escapes the settings directory (or is the directory itself)
+    if (!target.startsWith(baseDir) || target.equals(baseDir)) {
+      httpResponse.getOutputStream().println("Invalid file name");
+      throw new Exception("Invalid file name");
+    }
+    File file = target.toFile();
     if(!file.exists()) {
       file.getParentFile().mkdirs();
     }
@@ -300,10 +345,11 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+    httpResponse.setHeader("Location", safeHeaderValue(
+                           safeCustomerLocation(request.getContextPath(), customer1.getId())));
 
-    return customer1.toString().toLowerCase().replace("script","");
+    // customer fields are attacker-controlled and this String is served as HTML: encode it
+    return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
   }
 
 	/**
@@ -347,7 +393,7 @@ public class CustomerController {
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
 		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+				safeHeaderValue(safeCustomerLocation(request.getContextPath(), customer.getId())));
 
 		return createdcustomer;
 	}

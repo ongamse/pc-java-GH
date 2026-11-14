@@ -10,7 +10,9 @@ This is a demo application which provides a real world representation of a REST 
  ```
  
 ## Run
+The Jasypt master password used to decrypt `ENC(...)` properties is not stored in the repository. Supply it through the `JASYPT_ENCRYPTOR_PASSWORD` environment variable before starting the application:
  ```sh
+ $ export JASYPT_ENCRYPTOR_PASSWORD='<your jasypt master password>'
  $ java -jar target/hello-shiftleft-0.0.1.jar
 ```
 
