@@ -100,6 +100,20 @@ public class CustomerController {
 		return value.replaceAll("[\\x00-\\x08\\x0A-\\x1F\\x7F]", "");
 	}
 
+	/**
+	 * Builds a same-origin, relative-path Location value for a customer. The
+	 * context path comes from trusted server configuration (never from the
+	 * request) and must be a plain path, otherwise it is dropped; the id is
+	 * numeric. This prevents attacker-controlled data from steering redirects.
+	 */
+	private String customerLocation(long customerId) {
+		String contextPath = env.getProperty("server.context-path", "");
+		if (contextPath == null || !contextPath.matches("(/[A-Za-z0-9._~-]+)*")) {
+			contextPath = "";
+		}
+		return contextPath + "/customers/" + customerId;
+	}
+
 	private void dispatchEventToSalesForce(String event)
 			throws ClientProtocolException, IOException, AuthenticationException {
 		CloseableHttpClient client = HttpClients.createDefault();
@@ -324,8 +338,7 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", sanitizeHeaderValue(String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId())));
+    httpResponse.setHeader("Location", sanitizeHeaderValue(customerLocation(customer1.getId())));
 
     // customer1 contains request-supplied fields and is returned as HTML content: encode it
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
@@ -371,8 +384,7 @@ public class CustomerController {
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				sanitizeHeaderValue(String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
+		httpResponse.setHeader("Location", sanitizeHeaderValue(customerLocation(createdcustomer.getId())));
 
 		return createdcustomer;
 	}
