@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -157,6 +158,36 @@ public class CustomerController {
       }
 
       /**
+       * Removes CR, LF and all other control characters so a value cannot split
+       * or inject HTTP response headers.
+       */
+      private static String sanitizeHeaderValue(String value) {
+        if (value == null) {
+          return "";
+        }
+        return value.replaceAll("[\\p{Cntrl}\\u0085\\u2028\\u2029]", "");
+      }
+
+      /**
+       * A context path is accepted only as one or more non-empty path segments
+       * of RFC 3986 pchar characters (no scheme, authority, backslash, query,
+       * fragment, whitespace or empty segment such as a leading "//").
+       */
+      private static final java.util.regex.Pattern SAFE_CONTEXT_PATH =
+          java.util.regex.Pattern.compile("^(/[A-Za-z0-9._~%!$&'()*+,;=@-]+)+$");
+
+      /**
+       * Builds a path-only Location value for a customer so the redirect
+       * destination can never point at another host. An untrusted or malformed
+       * context path falls back to an empty prefix.
+       */
+      private static String buildCustomerLocation(String contextPath, long customerId) {
+        String prefix = (contextPath != null && SAFE_CONTEXT_PATH.matcher(contextPath).matches())
+            ? contextPath : "";
+        return sanitizeHeaderValue(String.format("%s/customers/%d", prefix, customerId));
+      }
+
+      /**
        * Check if settings= is present in cookie
        * @param request
        * @return
@@ -202,7 +233,8 @@ public class CustomerController {
             // encode the file settings, md5sum is removed
             String s = new String(Base64.getEncoder().encode(filecontent.replace(md5sum, "").getBytes()));
             // setting the new cookie
-            httpResponse.setHeader("Cookie", "settings=" + s + "," + md5sum);
+            httpResponse.setHeader("Cookie",
+                sanitizeHeaderValue("settings=" + s + "," + md5sum));
             return;
           }
         }
@@ -238,7 +270,7 @@ public class CustomerController {
     // Check md5sum
     String cookieMD5sum = cookie[1];
     String calcMD5Sum = DigestUtils.md5Hex(base64txt);
-	if(!cookieMD5sum.equals(calcMD5Sum))
+	if(!MessageDigest.isEqual(cookieMD5sum.getBytes(StandardCharsets.UTF_8), calcMD5Sum.getBytes(StandardCharsets.UTF_8)))
     {
       httpResponse.getOutputStream().println("Wrong md5");
       throw new Exception("Invalid MD5");
@@ -248,7 +280,14 @@ public class CustomerController {
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
+	  // canonicalize and ensure the target stays inside the storage base directory
+    Path baseDir = Paths.get(cpr.getPath()).toAbsolutePath().normalize();
+    Path target = baseDir.resolve(settings[0]).normalize();
+    if (!target.startsWith(baseDir) || target.equals(baseDir)) {
+      httpResponse.getOutputStream().println("Invalid settings file name");
+      throw new Exception("invalid settings file name");
+    }
+    File file = target.toFile();
     if(!file.exists()) {
       file.getParentFile().mkdirs();
     }
@@ -300,10 +339,10 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+    httpResponse.setHeader("Location", buildCustomerLocation(request.getContextPath(), customer1.getId()));
 
-    return customer1.toString().toLowerCase().replace("script","");
+    // HTML-encode the reflected, user-controlled values before they reach the response
+    return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
   }
 
 	/**
@@ -346,8 +385,7 @@ public class CustomerController {
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+		httpResponse.setHeader("Location", buildCustomerLocation(request.getContextPath(), customer.getId()));
 
 		return createdcustomer;
 	}
