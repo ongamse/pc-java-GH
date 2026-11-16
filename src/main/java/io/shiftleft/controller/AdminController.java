@@ -1,11 +1,7 @@
 package io.shiftleft.controller;
 
 import io.shiftleft.model.AuthToken;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import javax.servlet.http.Cookie;
@@ -25,16 +21,20 @@ import org.springframework.web.bind.annotation.RequestMethod;
  */
 @Controller
 public class AdminController {
+  private static final String TOKEN_PREFIX = "role:";
   private String fail = "redirect:/";
 
   // helper
   private boolean isAdmin(String auth)
   {
     try {
-      ByteArrayInputStream bis = new ByteArrayInputStream(Base64.getDecoder().decode(auth));
-      ObjectInputStream objectInputStream = new ObjectInputStream(bis);
-      Object authToken = objectInputStream.readObject();
-      return ((AuthToken) authToken).isAdmin();
+      // plain text format "role:<int>", base64 encoded; no native deserialization
+      String decoded = new String(Base64.getDecoder().decode(auth), StandardCharsets.UTF_8);
+      if (!decoded.startsWith(TOKEN_PREFIX)) {
+        return false;
+      }
+      int role = Integer.parseInt(decoded.substring(TOKEN_PREFIX.length()));
+      return new AuthToken(role).isAdmin();
     } catch (Exception ex) {
       System.out.println(" cookie cannot be deserialized: "+ex.getMessage());
       return false;
@@ -103,10 +103,8 @@ public class AdminController {
       if(pass[1] != null && pass[1].length()>0 && pass[1].equals("shiftleftsecret"))
       {
         AuthToken authToken = new AuthToken(AuthToken.ADMIN);
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        ObjectOutputStream oos = new ObjectOutputStream(bos);
-        oos.writeObject(authToken);
-        String cookieValue = new String(Base64.getEncoder().encode(bos.toByteArray()));
+        String cookieValue = Base64.getEncoder().encodeToString(
+            (TOKEN_PREFIX + authToken.getRole()).getBytes(StandardCharsets.UTF_8));
         response.addCookie(new Cookie("auth", cookieValue ));
 
         // cookie is lost after redirection
