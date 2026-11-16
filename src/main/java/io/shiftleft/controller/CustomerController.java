@@ -158,6 +158,17 @@ public class CustomerController {
       }
 
       /**
+       * Removes CR, LF and all other control characters so a value cannot split
+       * or inject HTTP response headers.
+       */
+      private static String sanitizeHeaderValue(String value) {
+        if (value == null) {
+          return "";
+        }
+        return value.replaceAll("[\\p{Cntrl}\\u0085\\u2028\\u2029]", "");
+      }
+
+      /**
        * Check if settings= is present in cookie
        * @param request
        * @return
@@ -203,7 +214,8 @@ public class CustomerController {
             // encode the file settings, md5sum is removed
             String s = new String(Base64.getEncoder().encode(filecontent.replace(md5sum, "").getBytes()));
             // setting the new cookie
-            httpResponse.setHeader("Cookie", "settings=" + s + "," + md5sum);
+            httpResponse.setHeader("Cookie",
+                sanitizeHeaderValue("settings=" + s + "," + md5sum));
             return;
           }
         }
@@ -308,8 +320,8 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+    httpResponse.setHeader("Location", sanitizeHeaderValue(String.format("%s/customers/%s",
+                           request.getContextPath(), customer1.getId())));
 
     // HTML-encode the reflected, user-controlled values before they reach the response
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
@@ -356,7 +368,7 @@ public class CustomerController {
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
 		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+				sanitizeHeaderValue(String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
 
 		return createdcustomer;
 	}
