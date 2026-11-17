@@ -40,6 +40,7 @@ import org.joda.time.DateTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.PropertySource;
 import org.springframework.core.env.Environment;
@@ -95,6 +96,30 @@ public class CustomerController {
 	 * Strips CR, LF and other ISO control characters so attacker-controlled data
 	 * cannot split an HTTP header (CWE-113).
 	 */
+	/**
+	 * Context path taken from trusted server configuration (never from the
+	 * request), used as the base of same-origin Location headers (CWE-601).
+	 */
+	@Value("${server.context-path:}")
+	private String trustedContextPath;
+
+	/**
+	 * Builds a same-origin, relative path for a Location header from the trusted
+	 * configured context path and the persisted customer id. No request-supplied
+	 * data (Host, Referer, request context path, URLs) contributes to the target.
+	 */
+	private String customerLocation(long customerId) {
+		String base = trustedContextPath == null ? "" : trustedContextPath.trim();
+		if (base.endsWith("/")) {
+			base = base.substring(0, base.length() - 1);
+		}
+		if (!base.isEmpty() && (!base.startsWith("/") || base.startsWith("//") || base.contains("://")
+				|| base.indexOf('\\') >= 0)) {
+			base = "";
+		}
+		return base + "/customers/" + customerId;
+	}
+
 	private static String sanitizeHeaderValue(String value) {
 		if (value == null) {
 			return null;
@@ -333,8 +358,7 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", sanitizeHeaderValue(String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId())));
+    httpResponse.setHeader("Location", customerLocation(customer1.getId()));
 
     // customer1 contains request parameters; HTML-encode before it is written to the response body
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
@@ -380,8 +404,7 @@ public class CustomerController {
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				sanitizeHeaderValue(String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
+		httpResponse.setHeader("Location", customerLocation(createdcustomer.getId()));
 
 		return createdcustomer;
 	}
