@@ -318,7 +318,8 @@ public class CustomerController {
     httpResponse.setHeader("Location", String.format("%s/customers/%s",
                            request.getContextPath(), customer1.getId()));
 
-    return customer1.toString().toLowerCase().replace("script","");
+    // customer1 contains request parameters; HTML-encode before it is written to the response body
+    return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
   }
 
 	/**
