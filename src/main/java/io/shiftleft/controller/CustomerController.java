@@ -104,6 +104,33 @@ public class CustomerController {
 	}
 
 	/**
+	 * Strips CR, LF and other control characters from a value that may be derived
+	 * from request data before it is written into an HTTP response header
+	 * (prevents header injection / response splitting).
+	 */
+	static String sanitizeHeaderValue(String value) {
+		if (value == null) {
+			return null;
+		}
+		return value.replaceAll("[\\p{Cntrl}&&[^\\t]]", "");
+	}
+
+	/**
+	 * Builds a same-origin relative Location value for a customer resource. The
+	 * context path comes from the request, so it is only used when it is a plain
+	 * absolute path (single leading "/", no scheme, host, backslash or control
+	 * characters); otherwise it fails closed to the application root.
+	 */
+	static String customerLocation(String contextPath, Object customerId) {
+		String base = "";
+		if (contextPath != null && contextPath.matches("/(?!/)[A-Za-z0-9._~/-]*")) {
+			base = contextPath.endsWith("/") ? contextPath.substring(0, contextPath.length() - 1) : contextPath;
+		}
+		String id = String.valueOf(customerId).replaceAll("[^A-Za-z0-9._~-]", "");
+		return base + "/customers/" + id;
+	}
+
+	/**
 	 * Get customer using id. Returns HTTP 404 if customer not found
 	 *
 	 * @param customerId
@@ -202,7 +229,7 @@ public class CustomerController {
             // encode the file settings, md5sum is removed
             String s = new String(Base64.getEncoder().encode(filecontent.replace(md5sum, "").getBytes()));
             // setting the new cookie
-            httpResponse.setHeader("Cookie", "settings=" + s + "," + md5sum);
+            httpResponse.setHeader("Cookie", sanitizeHeaderValue("settings=" + s + "," + md5sum));
             return;
           }
         }
@@ -238,17 +265,31 @@ public class CustomerController {
     // Check md5sum
     String cookieMD5sum = cookie[1];
     String calcMD5Sum = DigestUtils.md5Hex(base64txt);
-	if(!cookieMD5sum.equals(calcMD5Sum))
+	if(!MessageDigest.isEqual(cookieMD5sum.getBytes(StandardCharsets.UTF_8), calcMD5Sum.getBytes(StandardCharsets.UTF_8)))
     {
       httpResponse.getOutputStream().println("Wrong md5");
       throw new Exception("Invalid MD5");
     }
 
     // Now we can store on filesystem
-    String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
+    byte[] decodedSettings;
+    try {
+      decodedSettings = Base64.getDecoder().decode(base64txt);
+    } catch (IllegalArgumentException e) {
+      httpResponse.getOutputStream().println("Malformed cookie");
+      throw new Exception("cookie is incorrect");
+    }
+    String[] settings = new String(decodedSettings, StandardCharsets.UTF_8).split(",");
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
+    // the filename comes from the decoded cookie: keep it inside the storage base path
+    java.nio.file.Path basePath = Paths.get(cpr.getPath()).toAbsolutePath().normalize();
+    java.nio.file.Path targetPath = Paths.get(cpr.getPath() + settings[0]).toAbsolutePath().normalize();
+    if (!targetPath.startsWith(basePath) || targetPath.equals(basePath)) {
+      httpResponse.getOutputStream().println("Invalid settings file");
+      throw new Exception("invalid settings file");
+    }
+	  File file = targetPath.toFile();
     if(!file.exists()) {
       file.getParentFile().mkdirs();
     }
@@ -300,10 +341,11 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+    httpResponse.setHeader("Location", sanitizeHeaderValue(customerLocation(
+                           request.getContextPath(), customer1.getId())));
 
-    return customer1.toString().toLowerCase().replace("script","");
+    // customer fields come from request parameters: HTML-encode before writing them into the response body
+    return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
   }
 
 	/**
@@ -347,7 +389,7 @@ public class CustomerController {
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
 		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+				sanitizeHeaderValue(customerLocation(request.getContextPath(), customer.getId())));
 
 		return createdcustomer;
 	}
