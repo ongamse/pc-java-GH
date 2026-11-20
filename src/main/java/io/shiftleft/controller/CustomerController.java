@@ -104,6 +104,18 @@ public class CustomerController {
 	}
 
 	/**
+	 * Strips CR, LF and other control characters from a value that may be derived
+	 * from request data before it is written into an HTTP response header
+	 * (prevents header injection / response splitting).
+	 */
+	static String sanitizeHeaderValue(String value) {
+		if (value == null) {
+			return null;
+		}
+		return value.replaceAll("[\\p{Cntrl}&&[^\\t]]", "");
+	}
+
+	/**
 	 * Get customer using id. Returns HTTP 404 if customer not found
 	 *
 	 * @param customerId
@@ -202,7 +214,7 @@ public class CustomerController {
             // encode the file settings, md5sum is removed
             String s = new String(Base64.getEncoder().encode(filecontent.replace(md5sum, "").getBytes()));
             // setting the new cookie
-            httpResponse.setHeader("Cookie", "settings=" + s + "," + md5sum);
+            httpResponse.setHeader("Cookie", sanitizeHeaderValue("settings=" + s + "," + md5sum));
             return;
           }
         }
@@ -314,8 +326,8 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+    httpResponse.setHeader("Location", sanitizeHeaderValue(String.format("%s/customers/%s",
+                           request.getContextPath(), customer1.getId())));
 
     // customer fields come from request parameters: HTML-encode before writing them into the response body
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
@@ -362,7 +374,7 @@ public class CustomerController {
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
 		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+				sanitizeHeaderValue(String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
 
 		return createdcustomer;
 	}
