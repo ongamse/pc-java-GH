@@ -116,6 +116,21 @@ public class CustomerController {
 	}
 
 	/**
+	 * Builds a same-origin relative Location value for a customer resource. The
+	 * context path comes from the request, so it is only used when it is a plain
+	 * absolute path (single leading "/", no scheme, host, backslash or control
+	 * characters); otherwise it fails closed to the application root.
+	 */
+	static String customerLocation(String contextPath, Object customerId) {
+		String base = "";
+		if (contextPath != null && contextPath.matches("/(?!/)[A-Za-z0-9._~/-]*")) {
+			base = contextPath.endsWith("/") ? contextPath.substring(0, contextPath.length() - 1) : contextPath;
+		}
+		String id = String.valueOf(customerId).replaceAll("[^A-Za-z0-9._~-]", "");
+		return base + "/customers/" + id;
+	}
+
+	/**
 	 * Get customer using id. Returns HTTP 404 if customer not found
 	 *
 	 * @param customerId
@@ -326,7 +341,7 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", sanitizeHeaderValue(String.format("%s/customers/%s",
+    httpResponse.setHeader("Location", sanitizeHeaderValue(customerLocation(
                            request.getContextPath(), customer1.getId())));
 
     // customer fields come from request parameters: HTML-encode before writing them into the response body
@@ -374,7 +389,7 @@ public class CustomerController {
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
 		httpResponse.setHeader("Location",
-				sanitizeHeaderValue(String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
+				sanitizeHeaderValue(customerLocation(request.getContextPath(), customer.getId())));
 
 		return createdcustomer;
 	}
