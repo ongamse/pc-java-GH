@@ -245,10 +245,24 @@ public class CustomerController {
     }
 
     // Now we can store on filesystem
-    String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
+    byte[] decodedSettings;
+    try {
+      decodedSettings = Base64.getDecoder().decode(base64txt);
+    } catch (IllegalArgumentException e) {
+      httpResponse.getOutputStream().println("Malformed cookie");
+      throw new Exception("cookie is incorrect");
+    }
+    String[] settings = new String(decodedSettings, StandardCharsets.UTF_8).split(",");
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
+    // the filename comes from the decoded cookie: keep it inside the storage base path
+    java.nio.file.Path basePath = Paths.get(cpr.getPath()).toAbsolutePath().normalize();
+    java.nio.file.Path targetPath = Paths.get(cpr.getPath() + settings[0]).toAbsolutePath().normalize();
+    if (!targetPath.startsWith(basePath) || targetPath.equals(basePath)) {
+      httpResponse.getOutputStream().println("Invalid settings file");
+      throw new Exception("invalid settings file");
+    }
+	  File file = targetPath.toFile();
     if(!file.exists()) {
       file.getParentFile().mkdirs();
     }

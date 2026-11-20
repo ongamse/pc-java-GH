@@ -27,12 +27,30 @@ import org.springframework.web.bind.annotation.RequestMethod;
 public class AdminController {
   private String fail = "redirect:/";
 
+  /**
+   * ObjectInputStream that only resolves AuthToken, so the attacker-controlled
+   * cookie cannot instantiate arbitrary classes (gadget chains).
+   */
+  private static class AuthTokenInputStream extends ObjectInputStream {
+    AuthTokenInputStream(java.io.InputStream in) throws IOException {
+      super(in);
+    }
+
+    @Override
+    protected Class<?> resolveClass(java.io.ObjectStreamClass desc) throws IOException, ClassNotFoundException {
+      if (!AuthToken.class.getName().equals(desc.getName())) {
+        throw new java.io.InvalidClassException(desc.getName(), "Unauthorized deserialization attempt");
+      }
+      return super.resolveClass(desc);
+    }
+  }
+
   // helper
   private boolean isAdmin(String auth)
   {
     try {
       ByteArrayInputStream bis = new ByteArrayInputStream(Base64.getDecoder().decode(auth));
-      ObjectInputStream objectInputStream = new ObjectInputStream(bis);
+      ObjectInputStream objectInputStream = new AuthTokenInputStream(bis);
       Object authToken = objectInputStream.readObject();
       return ((AuthToken) authToken).isAdmin();
     } catch (Exception ex) {
