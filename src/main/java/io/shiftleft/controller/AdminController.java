@@ -1,13 +1,10 @@
 package io.shiftleft.controller;
 
 import io.shiftleft.model.AuthToken;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
@@ -30,6 +27,7 @@ public class AdminController {
 
   private static final int MAX_BASE64_INPUT_LENGTH = 8192;
   private static final Pattern BASE64_PATTERN = Pattern.compile("^[A-Za-z0-9+/]*={0,2}$");
+  private static final Pattern TOKEN_PATTERN = Pattern.compile("^role=([0-9]{1,9})$");
 
   // Bound and validate untrusted input before handing it to the JDK Base64 decoder
   private static byte[] safeBase64Decode(String input) {
@@ -44,14 +42,23 @@ public class AdminController {
   private boolean isAdmin(String auth)
   {
     try {
-      ByteArrayInputStream bis = new ByteArrayInputStream(safeBase64Decode(auth));
-      ObjectInputStream objectInputStream = new ObjectInputStream(bis);
-      Object authToken = objectInputStream.readObject();
-      return ((AuthToken) authToken).isAdmin();
+      // typed, strictly validated parsing instead of native Java deserialization
+      String decoded = new String(safeBase64Decode(auth), StandardCharsets.UTF_8);
+      Matcher m = TOKEN_PATTERN.matcher(decoded);
+      if (!m.matches()) {
+        return false;
+      }
+      return new AuthToken(Integer.parseInt(m.group(1))).isAdmin();
     } catch (Exception ex) {
-      System.out.println(" cookie cannot be deserialized: "+ex.getMessage());
+      System.out.println(" cookie cannot be parsed: "+ex.getMessage());
       return false;
     }
+  }
+
+  // Serialize the token as a plain "role=<n>" string (no Java object serialization)
+  private static String encodeToken(AuthToken token) {
+    String raw = "role=" + token.getRole();
+    return Base64.getEncoder().encodeToString(raw.getBytes(StandardCharsets.UTF_8));
   }
 
   //
@@ -116,10 +123,7 @@ public class AdminController {
       if(pass[1] != null && pass[1].length()>0 && pass[1].equals("shiftleftsecret"))
       {
         AuthToken authToken = new AuthToken(AuthToken.ADMIN);
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        ObjectOutputStream oos = new ObjectOutputStream(bos);
-        oos.writeObject(authToken);
-        String cookieValue = new String(Base64.getEncoder().encode(bos.toByteArray()));
+        String cookieValue = encodeToken(authToken);
         response.addCookie(new Cookie("auth", cookieValue ));
 
         // cookie is lost after redirection
