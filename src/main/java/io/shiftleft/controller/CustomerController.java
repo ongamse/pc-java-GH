@@ -87,6 +87,16 @@ public class CustomerController {
 		return value == null ? "" : value.replaceAll("[\\p{Cntrl}]", "");
 	}
 
+	/**
+	 * Builds the Location header value for a created customer from the
+	 * server-configured context path only; no request-derived data is used.
+	 */
+	private String customerLocation(Object customerId) {
+		String contextPath = env.getProperty("server.servlet.context-path",
+				env.getProperty("server.context-path", ""));
+		return String.format("%s/customers/%s", sanitizeHeaderValue(contextPath), customerId);
+	}
+
 	@Autowired
 	private CustomerRepository customerRepository;
 
@@ -341,8 +351,7 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           sanitizeHeaderValue(request.getContextPath()), customer1.getId()));
+    httpResponse.setHeader("Location", customerLocation(customer1.getId()));
 
     // HTML-encode the attacker-controlled customer fields before they are reflected in the response
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase());
@@ -389,8 +398,7 @@ public class CustomerController {
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", sanitizeHeaderValue(request.getContextPath()), customer.getId()));
+		httpResponse.setHeader("Location", customerLocation(customer.getId()));
 
 		return createdcustomer;
 	}
