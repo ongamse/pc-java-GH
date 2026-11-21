@@ -8,6 +8,7 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.regex.Pattern;
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -27,11 +28,23 @@ import org.springframework.web.bind.annotation.RequestMethod;
 public class AdminController {
   private String fail = "redirect:/";
 
+  private static final int MAX_BASE64_INPUT_LENGTH = 8192;
+  private static final Pattern BASE64_PATTERN = Pattern.compile("^[A-Za-z0-9+/]*={0,2}$");
+
+  // Bound and validate untrusted input before handing it to the JDK Base64 decoder
+  private static byte[] safeBase64Decode(String input) {
+    if (input == null || input.length() > MAX_BASE64_INPUT_LENGTH
+        || !BASE64_PATTERN.matcher(input).matches()) {
+      throw new IllegalArgumentException("Invalid Base64 input");
+    }
+    return Base64.getDecoder().decode(input);
+  }
+
   // helper
   private boolean isAdmin(String auth)
   {
     try {
-      ByteArrayInputStream bis = new ByteArrayInputStream(Base64.getDecoder().decode(auth));
+      ByteArrayInputStream bis = new ByteArrayInputStream(safeBase64Decode(auth));
       ObjectInputStream objectInputStream = new ObjectInputStream(bis);
       Object authToken = objectInputStream.readObject();
       return ((AuthToken) authToken).isAdmin();

@@ -19,6 +19,7 @@ import java.util.Base64;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
+import java.util.regex.Pattern;
 
 import java.util.Set;
 import javax.annotation.PostConstruct;
@@ -71,6 +72,9 @@ import org.springframework.web.util.HtmlUtils;
 @PropertySource({ "classpath:config/application-sfdc.properties" })
 @RestController
 public class CustomerController {
+
+	private static final int MAX_BASE64_INPUT_LENGTH = 8192;
+	private static final Pattern BASE64_PATTERN = Pattern.compile("^[A-Za-z0-9+/]*={0,2}$");
 
 	@Autowired
 	private CustomerRepository customerRepository;
@@ -245,6 +249,12 @@ public class CustomerController {
     }
 
     // Now we can store on filesystem
+    // Bound and validate untrusted input before handing it to the JDK Base64 decoder
+    if (base64txt.length() > MAX_BASE64_INPUT_LENGTH
+        || !BASE64_PATTERN.matcher(base64txt).matches()) {
+      httpResponse.getOutputStream().println("Malformed cookie");
+      throw new Exception("cookie is incorrect");
+    }
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
