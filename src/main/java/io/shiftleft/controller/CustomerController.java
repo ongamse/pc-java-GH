@@ -77,6 +77,15 @@ public class CustomerController {
 
 	private static final int MAX_BASE64_INPUT_LENGTH = 8192;
 	private static final Pattern BASE64_PATTERN = Pattern.compile("^[A-Za-z0-9+/]*={0,2}$");
+	private static final Pattern MD5_HEX_PATTERN = Pattern.compile("^[0-9a-fA-F]{32}$");
+
+	/**
+	 * Removes control characters (notably CR/LF) from a value before it is placed
+	 * in an HTTP response header, preventing header injection / response splitting.
+	 */
+	private static String sanitizeHeaderValue(String value) {
+		return value == null ? "" : value.replaceAll("[\\p{Cntrl}]", "");
+	}
 
 	@Autowired
 	private CustomerRepository customerRepository;
@@ -196,6 +205,11 @@ public class CustomerController {
           throw new Exception("cookie is incorrect");
         }
         String md5sum = request.getHeader("Cookie").substring("settings=".length(), 41);
+        // md5sum is echoed into a response header: allow only a 32-char hex digest
+        if (!MD5_HEX_PATTERN.matcher(md5sum).matches()) {
+          httpResponse.getOutputStream().println("Error");
+          throw new Exception("cookie is incorrect");
+        }
     	ClassPathResource cpr = new ClassPathResource("static");
     	File folder = new File(cpr.getPath());
 		File[] listOfFiles = folder.listFiles();
@@ -328,7 +342,7 @@ public class CustomerController {
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
     httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+                           sanitizeHeaderValue(request.getContextPath()), customer1.getId()));
 
     // HTML-encode the attacker-controlled customer fields before they are reflected in the response
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase());
@@ -376,7 +390,7 @@ public class CustomerController {
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
 		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+				String.format("%s/customers/%s", sanitizeHeaderValue(request.getContextPath()), customer.getId()));
 
 		return createdcustomer;
 	}
