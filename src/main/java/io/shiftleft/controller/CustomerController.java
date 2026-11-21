@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -19,9 +20,11 @@ import java.util.Base64;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
+import java.util.regex.Pattern;
 
 import java.util.Set;
 import javax.annotation.PostConstruct;
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.http.HttpHeaders;
@@ -72,6 +75,28 @@ import org.springframework.web.util.HtmlUtils;
 @RestController
 public class CustomerController {
 
+	private static final int MAX_BASE64_INPUT_LENGTH = 8192;
+	private static final Pattern BASE64_PATTERN = Pattern.compile("^[A-Za-z0-9+/]*={0,2}$");
+	private static final Pattern MD5_HEX_PATTERN = Pattern.compile("^[0-9a-fA-F]{32}$");
+
+	/**
+	 * Removes control characters (notably CR/LF) from a value before it is placed
+	 * in an HTTP response header, preventing header injection / response splitting.
+	 */
+	private static String sanitizeHeaderValue(String value) {
+		return value == null ? "" : value.replaceAll("[\\p{Cntrl}]", "");
+	}
+
+	/**
+	 * Builds the Location header value for a created customer from the
+	 * server-configured context path only; no request-derived data is used.
+	 */
+	private String customerLocation(Object customerId) {
+		String contextPath = env.getProperty("server.servlet.context-path",
+				env.getProperty("server.context-path", ""));
+		return String.format("%s/customers/%s", sanitizeHeaderValue(contextPath), customerId);
+	}
+
 	@Autowired
 	private CustomerRepository customerRepository;
 
@@ -110,7 +135,10 @@ public class CustomerController {
 	 * @return retrieved customer
 	 */
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.GET)
-	public Customer getCustomer(@PathVariable("customerId") Long customerId) {
+	public Customer getCustomer(@PathVariable("customerId") Long customerId, HttpServletRequest servletRequest) {
+
+		/* record lookup by client-supplied id requires an authorized session */
+		SessionAuthorizer.requireAdminSession(servletRequest);
 
 		/* validate customer Id parameter */
       if (null == customerId) {
@@ -187,6 +215,11 @@ public class CustomerController {
           throw new Exception("cookie is incorrect");
         }
         String md5sum = request.getHeader("Cookie").substring("settings=".length(), 41);
+        // md5sum is echoed into a response header: allow only a 32-char hex digest
+        if (!MD5_HEX_PATTERN.matcher(md5sum).matches()) {
+          httpResponse.getOutputStream().println("Error");
+          throw new Exception("cookie is incorrect");
+        }
     	ClassPathResource cpr = new ClassPathResource("static");
     	File folder = new File(cpr.getPath());
 		File[] listOfFiles = folder.listFiles();
@@ -238,17 +271,32 @@ public class CustomerController {
     // Check md5sum
     String cookieMD5sum = cookie[1];
     String calcMD5Sum = DigestUtils.md5Hex(base64txt);
-	if(!cookieMD5sum.equals(calcMD5Sum))
+	if(!MessageDigest.isEqual(
+        cookieMD5sum.getBytes(StandardCharsets.UTF_8),
+        calcMD5Sum.getBytes(StandardCharsets.UTF_8)))
     {
       httpResponse.getOutputStream().println("Wrong md5");
       throw new Exception("Invalid MD5");
     }
 
     // Now we can store on filesystem
+    // Bound and validate untrusted input before handing it to the JDK Base64 decoder
+    if (base64txt.length() > MAX_BASE64_INPUT_LENGTH
+        || !BASE64_PATTERN.matcher(base64txt).matches()) {
+      httpResponse.getOutputStream().println("Malformed cookie");
+      throw new Exception("cookie is incorrect");
+    }
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
+    // Confine the untrusted filename to the base directory (reject traversal / absolute paths)
+    Path baseDir = Paths.get(cpr.getPath()).toAbsolutePath().normalize();
+    Path target = baseDir.resolve(settings[0]).normalize();
+    if (!target.startsWith(baseDir) || target.equals(baseDir)) {
+      httpResponse.getOutputStream().println("Malformed cookie");
+      throw new Exception("cookie is incorrect");
+    }
+    File file = target.toFile();
     if(!file.exists()) {
       file.getParentFile().mkdirs();
     }
@@ -288,7 +336,10 @@ public class CustomerController {
                       @RequestParam String tin,
                       @RequestParam String phoneNumber,
                       HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
+                     WebRequest request,
+                     HttpServletRequest servletRequest) throws IOException{
+
+    SessionAuthorizer.requireAdminSession(servletRequest);
 
     // empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
@@ -300,10 +351,10 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+    httpResponse.setHeader("Location", customerLocation(customer1.getId()));
 
-    return customer1.toString().toLowerCase().replace("script","");
+    // HTML-encode the attacker-controlled customer fields before they are reflected in the response
+    return HtmlUtils.htmlEscape(customer1.toString().toLowerCase());
   }
 
 	/**
@@ -341,13 +392,13 @@ public class CustomerController {
 	 */
 	@RequestMapping(value = { "/customers" }, method = { RequestMethod.POST })
 	public Customer createCustomer(@RequestParam Customer customer, HttpServletResponse httpResponse,
-								   WebRequest request) {
+								   WebRequest request, HttpServletRequest servletRequest) {
 
+		SessionAuthorizer.requireAdminSession(servletRequest);
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+		httpResponse.setHeader("Location", customerLocation(customer.getId()));
 
 		return createdcustomer;
 	}
@@ -360,8 +411,9 @@ public class CustomerController {
 	 */
 	@RequestMapping(value = { "/customers/{customerId}" }, method = { RequestMethod.PUT })
 	public void updateCustomer(@RequestBody Customer customer, @PathVariable("customerId") Long customerId,
-			HttpServletResponse httpResponse) {
+			HttpServletResponse httpResponse, HttpServletRequest servletRequest) {
 
+		SessionAuthorizer.requireAdminSession(servletRequest);
 		if (!customerRepository.exists(customerId)) {
 			httpResponse.setStatus(HttpStatus.NOT_FOUND.value());
 		} else {
