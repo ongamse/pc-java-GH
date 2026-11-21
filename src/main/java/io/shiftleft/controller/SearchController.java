@@ -16,6 +16,8 @@ import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.util.HtmlUtils;
 
 
 /**
@@ -25,6 +27,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 public class SearchController {
 
   @RequestMapping(value = "/search/user", method = RequestMethod.GET)
+  @ResponseBody
   public String doGetSearch(@RequestParam String foo, HttpServletResponse response, HttpServletRequest request) {
     java.lang.Object message = new Object();
     try {
@@ -34,7 +37,8 @@ public class SearchController {
     } catch (Exception ex) {
       System.out.println(ex.getMessage());
     }
-    return message.toString();
+    // Evaluation result derives from attacker input: write it as an HTML-encoded response body
+    return HtmlUtils.htmlEscape(String.valueOf(message));
   }
 
   /**
