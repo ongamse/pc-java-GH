@@ -11,6 +11,8 @@ import java.io.IOException;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -245,10 +247,23 @@ public class CustomerController {
     }
 
     // Now we can store on filesystem
-    String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
+    String[] settings = new String(Base64.getDecoder().decode(base64txt), StandardCharsets.UTF_8).split(",");
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
+    // the filename comes from the attacker-controlled cookie: confine it to the storage directory
+    Path baseDir = Paths.get(cpr.getPath()).toAbsolutePath().normalize();
+    Path target;
+    try {
+      target = baseDir.resolve(settings[0]).normalize();
+    } catch (InvalidPathException ex) {
+      httpResponse.getOutputStream().println("Invalid file name");
+      throw new Exception("invalid settings file name");
+    }
+    if (settings[0].isEmpty() || !target.startsWith(baseDir) || target.equals(baseDir)) {
+      httpResponse.getOutputStream().println("Invalid file name");
+      throw new Exception("invalid settings file name");
+    }
+	  File file = target.toFile();
     if(!file.exists()) {
       file.getParentFile().mkdirs();
     }
