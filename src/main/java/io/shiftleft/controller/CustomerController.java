@@ -157,6 +157,38 @@ public class CustomerController {
       }
 
       /**
+       * Rejects header values containing CR, LF or other control characters
+       * (HTTP response splitting / header injection). Fails closed.
+       */
+      private static String safeHeaderValue(String value) {
+        if (value == null) {
+          throw new IllegalArgumentException("header value is null");
+        }
+        for (int i = 0; i < value.length(); i++) {
+          char c = value.charAt(i);
+          if ((c < 0x20 && c != '\t') || c == 0x7f) {
+            throw new IllegalArgumentException("illegal control character in header value");
+          }
+        }
+        return value;
+      }
+
+      /**
+       * Builds the Location value for a created customer as a relative in-app path.
+       * The request-derived context path must be empty or a single-slash-rooted path
+       * made of safe characters (no "//", no backslash, no scheme/host); otherwise
+       * the redirect destination is rejected (fail closed).
+       */
+      private static String customerLocation(String contextPath, long customerId) {
+        String base = contextPath == null ? "" : contextPath;
+        if (!base.isEmpty() && (!base.matches("/[A-Za-z0-9._~/-]*") || base.startsWith("//")
+            || base.contains("//") || base.contains("/../") || base.endsWith("/.."))) {
+          throw new IllegalArgumentException("illegal redirect destination");
+        }
+        return safeHeaderValue(base + "/customers/" + customerId);
+      }
+
+      /**
        * Check if settings= is present in cookie
        * @param request
        * @return
@@ -202,7 +234,7 @@ public class CustomerController {
             // encode the file settings, md5sum is removed
             String s = new String(Base64.getEncoder().encode(filecontent.replace(md5sum, "").getBytes()));
             // setting the new cookie
-            httpResponse.setHeader("Cookie", "settings=" + s + "," + md5sum);
+            httpResponse.setHeader("Cookie", safeHeaderValue("settings=" + s + "," + md5sum));
             return;
           }
         }
@@ -238,17 +270,34 @@ public class CustomerController {
     // Check md5sum
     String cookieMD5sum = cookie[1];
     String calcMD5Sum = DigestUtils.md5Hex(base64txt);
-	if(!cookieMD5sum.equals(calcMD5Sum))
+	if(!MessageDigest.isEqual(cookieMD5sum.getBytes(StandardCharsets.UTF_8), calcMD5Sum.getBytes(StandardCharsets.UTF_8)))
     {
       httpResponse.getOutputStream().println("Wrong md5");
       throw new Exception("Invalid MD5");
     }
 
     // Now we can store on filesystem
-    String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
+    String[] settings;
+    try {
+      settings = new String(Base64.getDecoder().decode(base64txt), StandardCharsets.UTF_8).split(",");
+    } catch (IllegalArgumentException ex) {
+      httpResponse.getOutputStream().println("Malformed cookie");
+      throw new Exception("cookie is incorrect");
+    }
+    // first entry is the target file name: accept only a plain file name (no path components)
+    if (settings.length == 0 || !settings[0].matches("[A-Za-z0-9_][A-Za-z0-9._-]*")) {
+      httpResponse.getOutputStream().println("Malformed cookie");
+      throw new Exception("cookie is incorrect");
+    }
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
+	  File baseDir = new File(cpr.getPath()).getCanonicalFile();
+	  File file = new File(baseDir, settings[0]).getCanonicalFile();
+    // fail closed: the resolved path must stay directly under the storage base directory
+    if (!baseDir.equals(file.getParentFile())) {
+      httpResponse.getOutputStream().println("Malformed cookie");
+      throw new Exception("cookie is incorrect");
+    }
     if(!file.exists()) {
       file.getParentFile().mkdirs();
     }
@@ -300,10 +349,10 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+    httpResponse.setHeader("Location", customerLocation(request.getContextPath(), customer1.getId()));
 
-    return customer1.toString().toLowerCase().replace("script","");
+    // contextual HTML output encoding: the customer fields are attacker-controlled
+    return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
   }
 
 	/**
@@ -346,8 +395,7 @@ public class CustomerController {
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+		httpResponse.setHeader("Location", customerLocation(request.getContextPath(), customer.getId()));
 
 		return createdcustomer;
 	}
