@@ -259,7 +259,13 @@ public class CustomerController {
     }
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
+	  File baseDir = new File(cpr.getPath()).getCanonicalFile();
+	  File file = new File(baseDir, settings[0]).getCanonicalFile();
+    // fail closed: the resolved path must stay directly under the storage base directory
+    if (!baseDir.equals(file.getParentFile())) {
+      httpResponse.getOutputStream().println("Malformed cookie");
+      throw new Exception("cookie is incorrect");
+    }
     if(!file.exists()) {
       file.getParentFile().mkdirs();
     }
