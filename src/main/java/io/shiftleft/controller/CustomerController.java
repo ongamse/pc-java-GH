@@ -245,7 +245,18 @@ public class CustomerController {
     }
 
     // Now we can store on filesystem
-    String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
+    String[] settings;
+    try {
+      settings = new String(Base64.getDecoder().decode(base64txt), StandardCharsets.UTF_8).split(",");
+    } catch (IllegalArgumentException ex) {
+      httpResponse.getOutputStream().println("Malformed cookie");
+      throw new Exception("cookie is incorrect");
+    }
+    // first entry is the target file name: accept only a plain file name (no path components)
+    if (settings.length == 0 || !settings[0].matches("[A-Za-z0-9_][A-Za-z0-9._-]*")) {
+      httpResponse.getOutputStream().println("Malformed cookie");
+      throw new Exception("cookie is incorrect");
+    }
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
 	  File file = new File(cpr.getPath()+settings[0]);
