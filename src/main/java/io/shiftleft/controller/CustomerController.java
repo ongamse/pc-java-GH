@@ -174,6 +174,21 @@ public class CustomerController {
       }
 
       /**
+       * Builds the Location value for a created customer as a relative in-app path.
+       * The request-derived context path must be empty or a single-slash-rooted path
+       * made of safe characters (no "//", no backslash, no scheme/host); otherwise
+       * the redirect destination is rejected (fail closed).
+       */
+      private static String customerLocation(String contextPath, long customerId) {
+        String base = contextPath == null ? "" : contextPath;
+        if (!base.isEmpty() && (!base.matches("/[A-Za-z0-9._~/-]*") || base.startsWith("//")
+            || base.contains("//") || base.contains("/../") || base.endsWith("/.."))) {
+          throw new IllegalArgumentException("illegal redirect destination");
+        }
+        return safeHeaderValue(base + "/customers/" + customerId);
+      }
+
+      /**
        * Check if settings= is present in cookie
        * @param request
        * @return
@@ -334,8 +349,7 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", safeHeaderValue(String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId())));
+    httpResponse.setHeader("Location", customerLocation(request.getContextPath(), customer1.getId()));
 
     // contextual HTML output encoding: the customer fields are attacker-controlled
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
@@ -381,8 +395,7 @@ public class CustomerController {
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				safeHeaderValue(String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
+		httpResponse.setHeader("Location", customerLocation(request.getContextPath(), customer.getId()));
 
 		return createdcustomer;
 	}
