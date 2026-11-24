@@ -105,6 +105,17 @@ public class CustomerController {
 	}
 
 	/**
+	 * Removes CR, LF and other control characters so that request-derived data
+	 * can never terminate a header line or inject additional headers.
+	 */
+	private static String safeHeaderValue(String value) {
+		if (value == null) {
+			return "";
+		}
+		return value.replaceAll("[\\p{Cntrl}]", "");
+	}
+
+	/**
 	 * Get customer using id. Returns HTTP 404 if customer not found
 	 *
 	 * @param customerId
@@ -191,6 +202,11 @@ public class CustomerController {
           throw new Exception("cookie is incorrect");
         }
         String md5sum = request.getHeader("Cookie").substring("settings=".length(), 41);
+        // the md5sum is echoed back in a response header: it must be a plain hex digest
+        if (!md5sum.matches("[0-9a-fA-F]{32}")) {
+          httpResponse.getOutputStream().println("Error");
+          throw new Exception("cookie is incorrect");
+        }
     	ClassPathResource cpr = new ClassPathResource("static");
     	File folder = new File(cpr.getPath());
 		File[] listOfFiles = folder.listFiles();
@@ -318,8 +334,8 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+    httpResponse.setHeader("Location", safeHeaderValue(String.format("%s/customers/%s",
+                           request.getContextPath(), customer1.getId())));
 
     // the response is rendered as HTML and contains request-supplied fields: HTML-encode it
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
@@ -366,7 +382,7 @@ public class CustomerController {
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
 		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+				safeHeaderValue(String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
 
 		return createdcustomer;
 	}
