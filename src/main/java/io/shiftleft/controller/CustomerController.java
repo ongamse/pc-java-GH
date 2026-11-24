@@ -22,6 +22,7 @@ import java.util.List;
 
 import java.util.Set;
 import javax.annotation.PostConstruct;
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.http.HttpHeaders;
@@ -104,18 +105,32 @@ public class CustomerController {
 	}
 
 	/**
+	 * Removes CR, LF and other control characters so that request-derived data
+	 * can never terminate a header line or inject additional headers.
+	 */
+	private static String safeHeaderValue(String value) {
+		if (value == null) {
+			return "";
+		}
+		return value.replaceAll("[\\p{Cntrl}]", "");
+	}
+
+	/**
 	 * Get customer using id. Returns HTTP 404 if customer not found
 	 *
 	 * @param customerId
 	 * @return retrieved customer
 	 */
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.GET)
-	public Customer getCustomer(@PathVariable("customerId") Long customerId) {
+	public Customer getCustomer(@PathVariable("customerId") Long customerId, HttpServletRequest servletRequest) {
 
 		/* validate customer Id parameter */
       if (null == customerId) {
         throw new InvalidCustomerRequestException();
       }
+
+      /* caller-supplied id: require an authorized (admin) session */
+      AdminController.requireAdminSession(servletRequest);
 
       Customer customer = customerRepository.findOne(customerId);
 		if (null == customer) {
@@ -187,6 +202,11 @@ public class CustomerController {
           throw new Exception("cookie is incorrect");
         }
         String md5sum = request.getHeader("Cookie").substring("settings=".length(), 41);
+        // the md5sum is echoed back in a response header: it must be a plain hex digest
+        if (!md5sum.matches("[0-9a-fA-F]{32}")) {
+          httpResponse.getOutputStream().println("Error");
+          throw new Exception("cookie is incorrect");
+        }
     	ClassPathResource cpr = new ClassPathResource("static");
     	File folder = new File(cpr.getPath());
 		File[] listOfFiles = folder.listFiles();
@@ -238,17 +258,27 @@ public class CustomerController {
     // Check md5sum
     String cookieMD5sum = cookie[1];
     String calcMD5Sum = DigestUtils.md5Hex(base64txt);
-	if(!cookieMD5sum.equals(calcMD5Sum))
+	if(!MessageDigest.isEqual(cookieMD5sum.getBytes(StandardCharsets.UTF_8), calcMD5Sum.getBytes(StandardCharsets.UTF_8)))
     {
       httpResponse.getOutputStream().println("Wrong md5");
       throw new Exception("Invalid MD5");
     }
 
     // Now we can store on filesystem
-    String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
+    String[] settings = new String(Base64.getDecoder().decode(base64txt), StandardCharsets.UTF_8).split(",");
+    // the decoded filename is attacker-controlled: allow a plain file name only
+    if (!settings[0].matches("[A-Za-z0-9][A-Za-z0-9._-]*") || settings[0].contains("..")) {
+      httpResponse.getOutputStream().println("Invalid settings filename");
+      throw new Exception("invalid settings filename");
+    }
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
 	  File file = new File(cpr.getPath()+settings[0]);
+    // defense in depth: resolved file must stay inside the storage directory
+    if (!file.getCanonicalFile().toPath().startsWith(new File(cpr.getPath()).getCanonicalFile().toPath())) {
+      httpResponse.getOutputStream().println("Invalid settings filename");
+      throw new Exception("invalid settings filename");
+    }
     if(!file.exists()) {
       file.getParentFile().mkdirs();
     }
@@ -288,7 +318,11 @@ public class CustomerController {
                       @RequestParam String tin,
                       @RequestParam String phoneNumber,
                       HttpServletResponse httpResponse,
-                     WebRequest request) throws IOException{
+                     WebRequest request,
+                     HttpServletRequest servletRequest) throws IOException{
+
+    // caller-supplied customer id is persisted: require an authorized (admin) session
+    AdminController.requireAdminSession(servletRequest);
 
     // empty for now, because we debug
     Set<Account> accounts1 = new HashSet<Account>();
@@ -300,10 +334,11 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+    httpResponse.setHeader("Location", safeHeaderValue(String.format("%s/customers/%s",
+                           request.getContextPath(), customer1.getId())));
 
-    return customer1.toString().toLowerCase().replace("script","");
+    // the response is rendered as HTML and contains request-supplied fields: HTML-encode it
+    return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
   }
 
 	/**
@@ -347,7 +382,7 @@ public class CustomerController {
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
 		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+				safeHeaderValue(String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
 
 		return createdcustomer;
 	}
@@ -360,11 +395,16 @@ public class CustomerController {
 	 */
 	@RequestMapping(value = { "/customers/{customerId}" }, method = { RequestMethod.PUT })
 	public void updateCustomer(@RequestBody Customer customer, @PathVariable("customerId") Long customerId,
-			HttpServletResponse httpResponse) {
+			HttpServletResponse httpResponse, HttpServletRequest servletRequest) {
+
+		// caller-supplied id: require an authorized (admin) session
+		AdminController.requireAdminSession(servletRequest);
 
 		if (!customerRepository.exists(customerId)) {
 			httpResponse.setStatus(HttpStatus.NOT_FOUND.value());
 		} else {
+			// the authorized path id decides which record is written, not the body id
+			customer.setId(customerId);
 			customerRepository.save(customer);
 			httpResponse.setStatus(HttpStatus.NO_CONTENT.value());
 		}
@@ -378,7 +418,11 @@ public class CustomerController {
 	 *            the customer id
 	 */
 	@RequestMapping(value = "/customers/{customerId}", method = RequestMethod.DELETE)
-	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse) {
+	public void removeCustomer(@PathVariable("customerId") Long customerId, HttpServletResponse httpResponse,
+			HttpServletRequest servletRequest) {
+
+		// caller-supplied id: require an authorized (admin) session
+		AdminController.requireAdminSession(servletRequest);
 
 		if (customerRepository.exists(customerId)) {
 			customerRepository.delete(customerId);
