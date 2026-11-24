@@ -1,5 +1,6 @@
 package io.shiftleft.controller;
 
+import io.shiftleft.exception.ForbiddenException;
 import io.shiftleft.model.AuthToken;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -48,8 +49,23 @@ public class AdminController {
     }
   }
 
+  /**
+   * Ownership/authorization gate for record access by caller-supplied id.
+   * The app has no per-customer principal, so only an admin session may
+   * read or modify records addressed by id. Fails closed (403) otherwise.
+   *
+   * @param request current request
+   * @throws ForbiddenException when the session does not carry an admin token
+   */
+  static void requireAdminSession(HttpServletRequest request) {
+    Object auth = request.getSession().getAttribute("auth");
+    if (auth == null || !isAdmin(auth.toString())) {
+      throw new ForbiddenException();
+    }
+  }
+
   // helper
-  private boolean isAdmin(String auth)
+  private static boolean isAdmin(String auth)
   {
     try {
       ByteArrayInputStream bis = new ByteArrayInputStream(Base64.getDecoder().decode(auth));
