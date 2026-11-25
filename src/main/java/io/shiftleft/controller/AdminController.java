@@ -3,14 +3,19 @@ package io.shiftleft.controller;
 import io.shiftleft.model.AuthToken;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.InvalidClassException;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.io.ObjectStreamClass;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
+import io.shiftleft.exception.ForbiddenRequestException;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Controller;
 import org.springframework.util.FileCopyUtils;
@@ -27,17 +32,56 @@ import org.springframework.web.bind.annotation.RequestMethod;
 public class AdminController {
   private String fail = "redirect:/";
 
+  // Upper bound for the Base64 auth cookie value accepted by isAdmin
+  private static final int MAX_AUTH_BASE64_LENGTH = 4096;
+
+  /**
+   * Fail-closed ownership/authorization gate for object lookups by id: only a
+   * session that holds a valid admin auth token may proceed (the application's
+   * only user concept is AuthToken; objects carry no owner).
+   */
+  static void requireAdminSession(HttpServletRequest request) {
+    HttpSession session = request.getSession(false);
+    Object auth = session == null ? null : session.getAttribute("auth");
+    if (auth == null || !isAdmin(auth.toString())) {
+      throw new ForbiddenRequestException();
+    }
+  }
+
   // helper
-  private boolean isAdmin(String auth)
+  static boolean isAdmin(String auth)
   {
     try {
+      // Bound the untrusted Base64 input before decoding it
+      if (auth == null || auth.length() > MAX_AUTH_BASE64_LENGTH) {
+        return false;
+      }
       ByteArrayInputStream bis = new ByteArrayInputStream(Base64.getDecoder().decode(auth));
-      ObjectInputStream objectInputStream = new ObjectInputStream(bis);
-      Object authToken = objectInputStream.readObject();
-      return ((AuthToken) authToken).isAdmin();
+      try (ObjectInputStream objectInputStream = new AuthTokenInputStream(bis)) {
+        Object authToken = objectInputStream.readObject();
+        return ((AuthToken) authToken).isAdmin();
+      }
     } catch (Exception ex) {
       System.out.println(" cookie cannot be deserialized: "+ex.getMessage());
       return false;
+    }
+  }
+
+  /**
+   * Look-ahead ObjectInputStream that only resolves the AuthToken class, so
+   * no other class from an attacker-supplied stream is ever loaded.
+   */
+  private static final class AuthTokenInputStream extends ObjectInputStream {
+    AuthTokenInputStream(InputStream in) throws IOException {
+      super(in);
+    }
+
+    @Override
+    protected Class<?> resolveClass(ObjectStreamClass desc) throws IOException, ClassNotFoundException {
+      if (!AuthToken.class.getName().equals(desc.getName())) {
+        throw new InvalidClassException(desc.getName(), "Unauthorized deserialization attempt");
+      }
+      return super.resolveClass(desc);
     }
   }
 
