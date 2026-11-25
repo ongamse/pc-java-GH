@@ -104,6 +104,31 @@ public class CustomerController {
 		return sb.toString();
 	}
 
+	// A context path is either empty or a same-origin absolute path made of safe segments
+	private static final java.util.regex.Pattern SAFE_CONTEXT_PATH =
+			java.util.regex.Pattern.compile("^(/[A-Za-z0-9._~-]+)*$");
+
+	/**
+	 * Builds a same-origin, relative Location value of the form
+	 * {@code <contextPath>/customers/<id>}. The request-derived context path is
+	 * only used when it is a plain path (no scheme, host, "//", backslash or
+	 * control characters), otherwise it is dropped; the id is encoded as a
+	 * single path segment so it cannot alter the target.
+	 */
+	private static String buildCustomerLocation(WebRequest request, Object customerId) {
+		String contextPath = request.getContextPath();
+		if (contextPath == null || !SAFE_CONTEXT_PATH.matcher(contextPath).matches()) {
+			contextPath = "";
+		}
+		String idSegment;
+		try {
+			idSegment = org.springframework.web.util.UriUtils.encodePathSegment(String.valueOf(customerId), "UTF-8");
+		} catch (java.io.UnsupportedEncodingException e) {
+			throw new IllegalStateException(e);
+		}
+		return contextPath + "/customers/" + idSegment;
+	}
+
 	@PostConstruct
 	public void init() {
 		log.info("Start Loading SalesForce Properties");
@@ -346,8 +371,7 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", sanitizeHeaderValue(String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId())));
+    httpResponse.setHeader("Location", sanitizeHeaderValue(buildCustomerLocation(request, customer1.getId())));
 
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
   }
@@ -393,7 +417,7 @@ public class CustomerController {
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
 		httpResponse.setHeader("Location",
-				sanitizeHeaderValue(String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
+				sanitizeHeaderValue(buildCustomerLocation(request, customer.getId())));
 
 		return createdcustomer;
 	}
