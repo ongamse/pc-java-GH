@@ -14,6 +14,8 @@ import java.util.Base64;
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
+import io.shiftleft.exception.ForbiddenRequestException;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Controller;
 import org.springframework.util.FileCopyUtils;
@@ -33,8 +35,21 @@ public class AdminController {
   // Upper bound for the Base64 auth cookie value accepted by isAdmin
   private static final int MAX_AUTH_BASE64_LENGTH = 4096;
 
+  /**
+   * Fail-closed ownership/authorization gate for object lookups by id: only a
+   * session that holds a valid admin auth token may proceed (the application's
+   * only user concept is AuthToken; objects carry no owner).
+   */
+  static void requireAdminSession(HttpServletRequest request) {
+    HttpSession session = request.getSession(false);
+    Object auth = session == null ? null : session.getAttribute("auth");
+    if (auth == null || !isAdmin(auth.toString())) {
+      throw new ForbiddenRequestException();
+    }
+  }
+
   // helper
-  private boolean isAdmin(String auth)
+  static boolean isAdmin(String auth)
   {
     try {
       // Bound the untrusted Base64 input before decoding it
