@@ -80,6 +80,9 @@ public class CustomerController {
 	
 	private static Logger log = LoggerFactory.getLogger(CustomerController.class);
 
+	// Upper bound for the Base64 settings cookie value accepted by saveSettings
+	private static final int MAX_SETTINGS_BASE64_LENGTH = 8192;
+
 	@PostConstruct
 	public void init() {
 		log.info("Start Loading SalesForce Properties");
@@ -242,6 +245,12 @@ public class CustomerController {
     {
       httpResponse.getOutputStream().println("Wrong md5");
       throw new Exception("Invalid MD5");
+    }
+
+    // Bound the untrusted Base64 input before decoding it
+    if (base64txt.length() > MAX_SETTINGS_BASE64_LENGTH) {
+      httpResponse.getOutputStream().println("Settings too large");
+      throw new Exception("settings cookie too large");
     }
 
     // Now we can store on filesystem

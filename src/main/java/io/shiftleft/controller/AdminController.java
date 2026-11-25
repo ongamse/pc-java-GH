@@ -27,10 +27,17 @@ import org.springframework.web.bind.annotation.RequestMethod;
 public class AdminController {
   private String fail = "redirect:/";
 
+  // Upper bound for the Base64 auth cookie value accepted by isAdmin
+  private static final int MAX_AUTH_BASE64_LENGTH = 4096;
+
   // helper
   private boolean isAdmin(String auth)
   {
     try {
+      // Bound the untrusted Base64 input before decoding it
+      if (auth == null || auth.length() > MAX_AUTH_BASE64_LENGTH) {
+        return false;
+      }
       ByteArrayInputStream bis = new ByteArrayInputStream(Base64.getDecoder().decode(auth));
       ObjectInputStream objectInputStream = new ObjectInputStream(bis);
       Object authToken = objectInputStream.readObject();
