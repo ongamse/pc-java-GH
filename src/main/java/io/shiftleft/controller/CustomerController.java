@@ -106,6 +106,20 @@ public class CustomerController {
 		return value;
 	}
 
+	/**
+	 * Builds a same-origin, path-only Location value for a customer. The context
+	 * path is only used when it is a plain sequence of path segments; anything
+	 * else (e.g. "//host", "http://host", backslashes) is dropped so the result
+	 * always starts with a single "/" and can never address another host.
+	 */
+	private static String customerLocation(String contextPath, long customerId) {
+		String prefix = "";
+		if (contextPath != null && contextPath.matches("(/[A-Za-z0-9._~-]+)+")) {
+			prefix = contextPath;
+		}
+		return prefix + "/customers/" + customerId;
+	}
+
 	private void dispatchEventToSalesForce(String event)
 			throws ClientProtocolException, IOException, AuthenticationException {
 		CloseableHttpClient client = HttpClients.createDefault();
@@ -328,8 +342,7 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", safeHeaderValue(String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId())));
+    httpResponse.setHeader("Location", safeHeaderValue(customerLocation(request.getContextPath(), customer1.getId())));
 
     // response is served as HTML: contextually encode the attacker-controlled fields
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase());
@@ -376,7 +389,7 @@ public class CustomerController {
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
 		httpResponse.setHeader("Location",
-				safeHeaderValue(String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
+				safeHeaderValue(customerLocation(request.getContextPath(), customer.getId())));
 
 		return createdcustomer;
 	}
