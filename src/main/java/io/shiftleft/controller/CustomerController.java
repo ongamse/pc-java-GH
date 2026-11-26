@@ -253,7 +253,13 @@ public class CustomerController {
     }
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
+    // resolve under the fixed base directory and reject anything that escapes it
+    File baseDir = new File(cpr.getPath()).getCanonicalFile();
+    File file = new File(baseDir, settings[0]).getCanonicalFile();
+    if (!baseDir.equals(file.getParentFile())) {
+      httpResponse.getOutputStream().println("Invalid settings file name");
+      throw new Exception("Invalid settings file name");
+    }
     if(!file.exists()) {
       file.getParentFile().mkdirs();
     }
