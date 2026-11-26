@@ -4,8 +4,10 @@ import io.shiftleft.model.AuthToken;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InvalidClassException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.io.ObjectStreamClass;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import javax.servlet.http.Cookie;
@@ -32,7 +34,16 @@ public class AdminController {
   {
     try {
       ByteArrayInputStream bis = new ByteArrayInputStream(Base64.getDecoder().decode(auth));
-      ObjectInputStream objectInputStream = new ObjectInputStream(bis);
+      // only AuthToken may be deserialized; any other class in the stream is rejected
+      ObjectInputStream objectInputStream = new ObjectInputStream(bis) {
+        @Override
+        protected Class<?> resolveClass(ObjectStreamClass desc) throws IOException, ClassNotFoundException {
+          if (!AuthToken.class.getName().equals(desc.getName())) {
+            throw new InvalidClassException(desc.getName(), "Unauthorized deserialization attempt");
+          }
+          return super.resolveClass(desc);
+        }
+      };
       Object authToken = objectInputStream.readObject();
       return ((AuthToken) authToken).isAdmin();
     } catch (Exception ex) {
