@@ -245,7 +245,12 @@ public class CustomerController {
     }
 
     // Now we can store on filesystem
-    String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
+    String[] settings = new String(Base64.getDecoder().decode(base64txt), StandardCharsets.UTF_8).split(",");
+    // the filename is attacker-controlled: allow a plain file name only (no path separators / traversal)
+    if (settings.length == 0 || !settings[0].matches("[A-Za-z0-9_-][A-Za-z0-9_.-]*") || settings[0].contains("..")) {
+      httpResponse.getOutputStream().println("Invalid settings file name");
+      throw new Exception("Invalid settings file name");
+    }
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
 	  File file = new File(cpr.getPath()+settings[0]);
