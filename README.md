@@ -10,7 +10,9 @@ This is a demo application which provides a real world representation of a REST 
  ```
  
 ## Run
+ The Jasypt master password is read from the `JASYPT_ENCRYPTOR_PASSWORD` environment variable and is not stored in the repository.
  ```sh
+ $ export JASYPT_ENCRYPTOR_PASSWORD='<jasypt master password>'
  $ java -jar target/hello-shiftleft-0.0.1.jar
 ```
 
