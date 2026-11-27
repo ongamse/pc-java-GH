@@ -177,6 +177,21 @@ public class CustomerController {
       }
 
       /**
+       * Builds the Location header value for a customer using only server-side
+       * configuration (server.context-path) and the persisted numeric id, never
+       * request-derived data, so the redirect target cannot be attacker controlled (CWE-601).
+       * @param customerId persisted customer id
+       * @return same-origin relative path
+       */
+      private String customerLocation(long customerId) {
+        String ctx = env.getProperty("server.context-path", "");
+        if (ctx == null || !ctx.matches("^(/[A-Za-z0-9._~-]+)*$")) {
+          ctx = "";
+        }
+        return sanitizeHeaderValue(ctx + "/customers/" + customerId);
+      }
+
+      /**
        * Check if settings= is present in cookie
        * @param request
        * @return
@@ -341,8 +356,7 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", sanitizeHeaderValue(String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId())));
+    httpResponse.setHeader("Location", customerLocation(customer1.getId()));
 
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase());
   }
@@ -387,8 +401,7 @@ public class CustomerController {
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				sanitizeHeaderValue(String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
+		httpResponse.setHeader("Location", customerLocation(createdcustomer.getId()));
 
 		return createdcustomer;
 	}
