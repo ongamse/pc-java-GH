@@ -157,6 +157,41 @@ public class CustomerController {
       }
 
       /**
+       * Removes CR/LF and other control characters so that untrusted data can never
+       * terminate or split an HTTP response header (CWE-113).
+       * @param value candidate header value
+       * @return header-safe value
+       */
+      static String sanitizeHeaderValue(String value) {
+        if (value == null) {
+          return null;
+        }
+        StringBuilder sb = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+          char c = value.charAt(i);
+          if (c == '\t' || (c >= 0x20 && c != 0x7f && !(c >= 0x80 && c <= 0x9f))) {
+            sb.append(c);
+          }
+        }
+        return sb.toString();
+      }
+
+      /**
+       * Builds the Location header value for a customer using only server-side
+       * configuration (server.context-path) and the persisted numeric id, never
+       * request-derived data, so the redirect target cannot be attacker controlled (CWE-601).
+       * @param customerId persisted customer id
+       * @return same-origin relative path
+       */
+      private String customerLocation(long customerId) {
+        String ctx = env.getProperty("server.context-path", "");
+        if (ctx == null || !ctx.matches("^(/[A-Za-z0-9._~-]+)*$")) {
+          ctx = "";
+        }
+        return sanitizeHeaderValue(ctx + "/customers/" + customerId);
+      }
+
+      /**
        * Check if settings= is present in cookie
        * @param request
        * @return
@@ -202,7 +237,7 @@ public class CustomerController {
             // encode the file settings, md5sum is removed
             String s = new String(Base64.getEncoder().encode(filecontent.replace(md5sum, "").getBytes()));
             // setting the new cookie
-            httpResponse.setHeader("Cookie", "settings=" + s + "," + md5sum);
+            httpResponse.setHeader("Cookie", sanitizeHeaderValue("settings=" + s + "," + md5sum));
             return;
           }
         }
@@ -238,17 +273,35 @@ public class CustomerController {
     // Check md5sum
     String cookieMD5sum = cookie[1];
     String calcMD5Sum = DigestUtils.md5Hex(base64txt);
-	if(!cookieMD5sum.equals(calcMD5Sum))
+	if(!MessageDigest.isEqual(cookieMD5sum.getBytes(StandardCharsets.UTF_8), calcMD5Sum.getBytes(StandardCharsets.UTF_8)))
     {
       httpResponse.getOutputStream().println("Wrong md5");
       throw new Exception("Invalid MD5");
     }
 
     // Now we can store on filesystem
+    // Bound length and restrict to the standard Base64 alphabet before decoding
+    if (base64txt.length() > 8192 || !base64txt.matches("^[A-Za-z0-9+/]*={0,2}$")) {
+      httpResponse.getOutputStream().println("Malformed settings");
+      throw new Exception("Invalid settings encoding");
+    }
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
+    // Canonicalize and make sure the target stays inside the storage directory
+    java.nio.file.Path baseDir = Paths.get(cpr.getPath()).toAbsolutePath().normalize();
+    java.nio.file.Path target;
+    try {
+      target = baseDir.resolve(settings[0]).normalize();
+    } catch (java.nio.file.InvalidPathException e) {
+      httpResponse.getOutputStream().println("Malformed settings");
+      throw new Exception("Invalid settings filename");
+    }
+    if (!target.startsWith(baseDir) || target.equals(baseDir)) {
+      httpResponse.getOutputStream().println("Malformed settings");
+      throw new Exception("Invalid settings filename");
+    }
+    File file = target.toFile();
     if(!file.exists()) {
       file.getParentFile().mkdirs();
     }
@@ -260,6 +313,9 @@ public class CustomerController {
     fos.write(String.join("\n",settingsArr).getBytes());
     fos.write(("\n"+cookie[cookie.length-1]).getBytes());
     fos.close();
+    // Plain text only: the browser must never interpret this body as HTML
+    httpResponse.setContentType("text/plain;charset=UTF-8");
+    httpResponse.setHeader("X-Content-Type-Options", "nosniff");
     httpResponse.getOutputStream().println("Settings Saved");
   }
 
@@ -277,7 +333,7 @@ public class CustomerController {
    * @return String
    * @throws IOException
    */
-  @RequestMapping(value = "/debug", method = RequestMethod.GET)
+  @RequestMapping(value = "/debug", method = RequestMethod.GET, produces = "text/plain;charset=UTF-8")
   public String debug(@RequestParam String customerId,
 					  @RequestParam int clientId,
 					  @RequestParam String firstName,
@@ -300,10 +356,9 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+    httpResponse.setHeader("Location", customerLocation(customer1.getId()));
 
-    return customer1.toString().toLowerCase().replace("script","");
+    return HtmlUtils.htmlEscape(customer1.toString().toLowerCase());
   }
 
 	/**
@@ -346,8 +401,7 @@ public class CustomerController {
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+		httpResponse.setHeader("Location", customerLocation(createdcustomer.getId()));
 
 		return createdcustomer;
 	}
