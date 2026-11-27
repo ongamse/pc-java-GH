@@ -253,7 +253,20 @@ public class CustomerController {
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
+    // Canonicalize and make sure the target stays inside the storage directory
+    java.nio.file.Path baseDir = Paths.get(cpr.getPath()).toAbsolutePath().normalize();
+    java.nio.file.Path target;
+    try {
+      target = baseDir.resolve(settings[0]).normalize();
+    } catch (java.nio.file.InvalidPathException e) {
+      httpResponse.getOutputStream().println("Malformed settings");
+      throw new Exception("Invalid settings filename");
+    }
+    if (!target.startsWith(baseDir) || target.equals(baseDir)) {
+      httpResponse.getOutputStream().println("Malformed settings");
+      throw new Exception("Invalid settings filename");
+    }
+    File file = target.toFile();
     if(!file.exists()) {
       file.getParentFile().mkdirs();
     }
