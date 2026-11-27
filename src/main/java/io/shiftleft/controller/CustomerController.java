@@ -245,6 +245,11 @@ public class CustomerController {
     }
 
     // Now we can store on filesystem
+    // Bound length and restrict to the standard Base64 alphabet before decoding
+    if (base64txt.length() > 8192 || !base64txt.matches("^[A-Za-z0-9+/]*={0,2}$")) {
+      httpResponse.getOutputStream().println("Malformed settings");
+      throw new Exception("Invalid settings encoding");
+    }
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
