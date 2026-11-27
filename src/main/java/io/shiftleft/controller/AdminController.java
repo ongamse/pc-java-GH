@@ -36,12 +36,32 @@ public class AdminController {
         return false;
       }
       ByteArrayInputStream bis = new ByteArrayInputStream(Base64.getDecoder().decode(auth));
-      ObjectInputStream objectInputStream = new ObjectInputStream(bis);
-      Object authToken = objectInputStream.readObject();
-      return ((AuthToken) authToken).isAdmin();
+      try (ObjectInputStream objectInputStream = new AuthTokenObjectInputStream(bis)) {
+        Object authToken = objectInputStream.readObject();
+        return ((AuthToken) authToken).isAdmin();
+      }
     } catch (Exception ex) {
       System.out.println(" cookie cannot be deserialized: "+ex.getMessage());
       return false;
+    }
+  }
+
+  /**
+   * Look-ahead ObjectInputStream: only AuthToken may be resolved, any other
+   * class in the stream is rejected before it is instantiated.
+   */
+  private static final class AuthTokenObjectInputStream extends ObjectInputStream {
+    AuthTokenObjectInputStream(java.io.InputStream in) throws IOException {
+      super(in);
+    }
+
+    @Override
+    protected Class<?> resolveClass(java.io.ObjectStreamClass desc)
+        throws IOException, ClassNotFoundException {
+      if (!AuthToken.class.getName().equals(desc.getName())) {
+        throw new java.io.InvalidClassException(desc.getName(), "Unauthorized deserialization attempt");
+      }
+      return super.resolveClass(desc);
     }
   }
 
