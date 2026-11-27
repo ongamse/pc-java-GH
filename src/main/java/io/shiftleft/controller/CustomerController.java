@@ -157,6 +157,26 @@ public class CustomerController {
       }
 
       /**
+       * Removes CR/LF and other control characters so that untrusted data can never
+       * terminate or split an HTTP response header (CWE-113).
+       * @param value candidate header value
+       * @return header-safe value
+       */
+      static String sanitizeHeaderValue(String value) {
+        if (value == null) {
+          return null;
+        }
+        StringBuilder sb = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+          char c = value.charAt(i);
+          if (c == '\t' || (c >= 0x20 && c != 0x7f && !(c >= 0x80 && c <= 0x9f))) {
+            sb.append(c);
+          }
+        }
+        return sb.toString();
+      }
+
+      /**
        * Check if settings= is present in cookie
        * @param request
        * @return
@@ -202,7 +222,7 @@ public class CustomerController {
             // encode the file settings, md5sum is removed
             String s = new String(Base64.getEncoder().encode(filecontent.replace(md5sum, "").getBytes()));
             // setting the new cookie
-            httpResponse.setHeader("Cookie", "settings=" + s + "," + md5sum);
+            httpResponse.setHeader("Cookie", sanitizeHeaderValue("settings=" + s + "," + md5sum));
             return;
           }
         }
@@ -321,8 +341,8 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId()));
+    httpResponse.setHeader("Location", sanitizeHeaderValue(String.format("%s/customers/%s",
+                           request.getContextPath(), customer1.getId())));
 
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase());
   }
@@ -368,7 +388,7 @@ public class CustomerController {
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
 		httpResponse.setHeader("Location",
-				String.format("%s/customers/%s", request.getContextPath(), customer.getId()));
+				sanitizeHeaderValue(String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
 
 		return createdcustomer;
 	}
