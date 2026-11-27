@@ -278,6 +278,9 @@ public class CustomerController {
     fos.write(String.join("\n",settingsArr).getBytes());
     fos.write(("\n"+cookie[cookie.length-1]).getBytes());
     fos.close();
+    // Plain text only: the browser must never interpret this body as HTML
+    httpResponse.setContentType("text/plain;charset=UTF-8");
+    httpResponse.setHeader("X-Content-Type-Options", "nosniff");
     httpResponse.getOutputStream().println("Settings Saved");
   }
 
@@ -295,7 +298,7 @@ public class CustomerController {
    * @return String
    * @throws IOException
    */
-  @RequestMapping(value = "/debug", method = RequestMethod.GET)
+  @RequestMapping(value = "/debug", method = RequestMethod.GET, produces = "text/plain;charset=UTF-8")
   public String debug(@RequestParam String customerId,
 					  @RequestParam int clientId,
 					  @RequestParam String firstName,
@@ -321,7 +324,7 @@ public class CustomerController {
     httpResponse.setHeader("Location", String.format("%s/customers/%s",
                            request.getContextPath(), customer1.getId()));
 
-    return customer1.toString().toLowerCase().replace("script","");
+    return HtmlUtils.htmlEscape(customer1.toString().toLowerCase());
   }
 
 	/**
