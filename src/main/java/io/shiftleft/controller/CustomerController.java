@@ -334,8 +334,8 @@ public class CustomerController {
 
     customerRepository.save(customer1);
     httpResponse.setStatus(HttpStatus.CREATED.value());
-    httpResponse.setHeader("Location", safeHeaderValue(String.format("%s/customers/%s",
-                           request.getContextPath(), customer1.getId())));
+    // fixed relative path; the Location is not derived from request-supplied data
+    httpResponse.setHeader("Location", String.format("/customers/%d", customer1.getId()));
 
     return HtmlUtils.htmlEscape(customer1.toString().toLowerCase().replace("script",""));
   }
@@ -382,8 +382,8 @@ public class CustomerController {
 		Customer createdcustomer = null;
 		createdcustomer = customerRepository.save(customer);
 		httpResponse.setStatus(HttpStatus.CREATED.value());
-		httpResponse.setHeader("Location",
-				safeHeaderValue(String.format("%s/customers/%s", request.getContextPath(), customer.getId())));
+		// fixed relative path; the Location is not derived from request-supplied data
+		httpResponse.setHeader("Location", String.format("/customers/%d", customer.getId()));
 
 		return createdcustomer;
 	}
