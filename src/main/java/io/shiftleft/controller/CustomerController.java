@@ -257,7 +257,13 @@ public class CustomerController {
     String[] settings = new String(Base64.getDecoder().decode(base64txt)).split(",");
 	// storage will have ClassPathResource as basepath
     ClassPathResource cpr = new ClassPathResource("./static/");
-	  File file = new File(cpr.getPath()+settings[0]);
+	  // canonicalize the target and make sure it stays strictly under the storage base dir
+    File baseDir = new File(cpr.getPath()).getCanonicalFile();
+    File file = new File(cpr.getPath() + settings[0]).getCanonicalFile();
+    if (!file.getPath().startsWith(baseDir.getPath() + File.separator)) {
+      httpResponse.getOutputStream().println("Malformed cookie");
+      throw new Exception("cookie is incorrect");
+    }
     if(!file.exists()) {
       file.getParentFile().mkdirs();
     }
