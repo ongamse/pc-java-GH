@@ -8,6 +8,7 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.regex.Pattern;
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -25,12 +26,19 @@ import org.springframework.web.bind.annotation.RequestMethod;
  */
 @Controller
 public class AdminController {
+  private static final int MAX_AUTH_LENGTH = 8192;
+  private static final Pattern BASE64_PATTERN = Pattern.compile("^[A-Za-z0-9+/]+={0,2}$");
+
   private String fail = "redirect:/";
 
   // helper
   private boolean isAdmin(String auth)
   {
     try {
+      // validate untrusted input before Base64 decoding
+      if (auth == null || auth.length() > MAX_AUTH_LENGTH || !BASE64_PATTERN.matcher(auth).matches()) {
+        throw new IllegalArgumentException("auth is not valid base64");
+      }
       ByteArrayInputStream bis = new ByteArrayInputStream(Base64.getDecoder().decode(auth));
       ObjectInputStream objectInputStream = new ObjectInputStream(bis);
       Object authToken = objectInputStream.readObject();

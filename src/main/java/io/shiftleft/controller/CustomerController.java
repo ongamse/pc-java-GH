@@ -21,6 +21,7 @@ import java.util.HashSet;
 import java.util.List;
 
 import java.util.Set;
+import java.util.regex.Pattern;
 import javax.annotation.PostConstruct;
 import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.codec.digest.DigestUtils;
@@ -71,6 +72,8 @@ import org.springframework.web.util.HtmlUtils;
 @PropertySource({ "classpath:config/application-sfdc.properties" })
 @RestController
 public class CustomerController {
+  private static final int MAX_SETTINGS_BASE64_LENGTH = 65536;
+  private static final Pattern BASE64_PATTERN = Pattern.compile("^[A-Za-z0-9+/]*={0,2}$");
 
 	@Autowired
 	private CustomerRepository customerRepository;
@@ -242,6 +245,12 @@ public class CustomerController {
     {
       httpResponse.getOutputStream().println("Wrong md5");
       throw new Exception("Invalid MD5");
+    }
+
+    // validate untrusted input before Base64 decoding
+    if (base64txt.length() > MAX_SETTINGS_BASE64_LENGTH || !BASE64_PATTERN.matcher(base64txt).matches()) {
+      httpResponse.getOutputStream().println("Malformed cookie");
+      throw new Exception("cookie is incorrect");
     }
 
     // Now we can store on filesystem
